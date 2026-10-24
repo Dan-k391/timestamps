@@ -1,16 +1,22 @@
 // Day view: timeline lanes, live updates, tagging and summaries.
 import { h, clear, icon, button, appIcon, kindIcon, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, escapeHTML, shortURL, baseName, dirName, pct } from '../fmt.js';
+import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser } from '../fmt.js';
 import * as api from '../api.js';
 import { Timeline } from '../timeline.js';
 import { ActivityList } from '../activitylist.js';
+import { Board } from '../board.js';
 import { state, loadTags } from '../state.js';
+import { debounce } from '../ui.js';
 import { openTagDialog } from '../tagdialog.js';
 import { openLightbox } from './shots.js';
 import { go } from '../router.js';
 
 let clipboardTag = null;
+
+const BROWSERS = new Set(['chrome.exe', 'msedge.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'chromium.exe', 'browser.exe', '360se.exe',
+  '360chrome.exe', 'qqbrowser.exe', 'sogouexplorer.exe', '2345explorer.exe', 'liebao.exe', 'centbrowser.exe', 'arc.exe', 'thorium.exe',
+  'iexplore.exe', 'firefox.exe', 'waterfox.exe', 'librewolf.exe', 'floorp.exe', 'zen.exe']);
 
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
@@ -56,7 +62,7 @@ export function mount(el, params) {
     h('div', { class: 'btn-group' },
       button('', { icon: 'zoomOut', title: t('Zoom out') + ' (-)', onClick: () => tl.zoomBy(1.6) }),
       button('', { icon: 'fit', title: t('Fit active hours') + ' (0)', onClick: () => tl.fit() }),
-      button('24h', { title: t('Whole day') + ' (Shift+0)', onClick: () => tl.fit(true), small: true }),
+      button('24h', { title: t('Whole day') + ' (Shift+0)', onClick: () => tl.fit(!(data && tl.view[0] <= data.from && tl.view[1] >= data.to)), class: 'btn-text' }),
       button('', { icon: 'zoomIn', title: t('Zoom in') + ' (+)', onClick: () => tl.zoomBy(1 / 1.6) })));
 
   // ---- timeline ----
@@ -69,9 +75,25 @@ export function mount(el, params) {
   const appsCard = h('section', { class: 'card list-card' });
   const docsCard = h('section', { class: 'card list-card' });
   const tagsCard = h('section', { class: 'card list-card' });
-  const shotsCard = h('section', { class: 'card shots-card', hidden: true });
-  const listHost = h('div');
-  el.append(header, tlCard, listHost, h('div', { class: 'grid-3' }, appsCard, docsCard, tagsCard), shotsCard);
+  const shotsCard = h('section', { class: 'card shots-card' });
+  const listHost = h('div', { class: 'blk-fill' });
+  const boardEl = h('div');
+  el.append(header, boardEl);
+  const ALL = ['1/3', '1/2', '2/3', 'full'];
+  const saveLayout = debounce((layout) => {
+    if (!state.settings) return;
+    state.settings.dayLayout = layout;
+    api.post('settings', state.settings).catch((err) => toast(err.message, { type: 'error' }));
+  }, 400);
+  const board = new Board(boardEl, [
+    { id: 'timeline', title: t('Timeline'), el: tlCard, widths: ['2/3', 'full'], w: 'full' },
+    { id: 'activities', title: t('Activities'), el: listHost, widths: ['1/2', '2/3', 'full'], w: '2/3' },
+    { id: 'docs', title: t('Documents'), el: docsCard, widths: ALL, w: '1/3' },
+    { id: 'apps', title: t('Applications'), el: appsCard, widths: ALL, w: '1/2' },
+    { id: 'tags', title: t('Tags'), el: tagsCard, widths: ALL, w: '1/2' },
+    { id: 'shots', title: t('Screenshots'), el: shotsCard, widths: ALL, w: 'full' },
+  ], (state.settings && state.settings.dayLayout) || [], saveLayout);
+  board.setHidden('shots', true);
 
   const tl = new Timeline(tlHost, {
     onSelect: (s) => { sel = s; renderSelBar(); renderSummaries(); list.setSelection(s); },
@@ -82,6 +104,7 @@ export function mount(el, params) {
       showTip(e.clientX, e.clientY, tooltip(hit.seg));
     },
     onView: (v) => scheduleListRange(v),
+    onDraw: () => positionSelBar(),
     onDblClick: (hit) => {
       if (!hit || !hit.seg) return;
       if (hit.seg.kind === 'tag') editTag(hit.seg.tag);
@@ -99,8 +122,8 @@ export function mount(el, params) {
 
   const list = new ActivityList(listHost, {
     onPick: (seg) => { tl.setSelection({ s: seg.s, e: seg.e }); tl.reveal(seg.s, seg.e); },
-    onHover: (seg) => tl.setMark(seg),
-    onOpen: (seg) => (seg.kind === 'tag' ? editTag(seg.tag) : tagRange(seg.s, seg.e)),
+    onHover: (r) => tl.setMark(r && r.segs ? { s: r.s, e: r.e, laneId: list.tab } : r),
+    onOpen: (r) => (r.segs ? tagMany(r.segs) : r.kind === 'tag' ? editTag(r.tag) : tagRange(r.s, r.e)),
     onContext: (seg, e) => contextMenu({ seg, t: null, lane: null }, e),
     onTag: (segs) => tagMany(segs),
     onDeleteTags: async (segs) => {
@@ -130,7 +153,7 @@ export function mount(el, params) {
       case 'doc': {
         const d = sg.doc;
         const sub = d.kind === 2 ? escapeHTML(d.key) : escapeHTML(d.key);
-        return `<div class="tip-title">${escapeHTML(d.kind === 2 ? d.name : baseName(d.key))}</div><div class="tip-sub mono">${sub}</div>${time}`;
+        return `<div class="tip-title">${escapeHTML(d.kind === 2 ? sg.page || d.grp : baseName(d.key))}</div><div class="tip-sub mono">${sub}</div>${time}`;
       }
       case 'tag':
         return `<div class="tip-title">${escapeHTML(sg.tag.tags)}${sg.tag.billable ? ' <span class="pill">$</span>' : ''}</div>${sg.tag.notes ? `<div class="tip-sub">${escapeHTML(sg.tag.notes)}</div>` : ''}${time}`;
@@ -159,10 +182,22 @@ export function mount(el, params) {
       const c = hex(app.color);
       return { s, e, color: c, ink: inkFor(c), label: app.name, group: 'a' + a, icon: app.icon ? api.iconURL(a) : null, search: app.name + ' ' + title, kind: 'app', app, title };
     });
+    const pages = pageTitles(apps);
+    let ai = 0;
     const docs = d.docs.map(([s, e, id, a]) => {
       const doc = d.docMap[id] || { kind: 1, key: '?', name: '?', grp: '?' };
+      // The page title is the browser window title at the time (imported
+      // ManicTime data has URLs only).
+      let page = '';
+      if (doc.kind === 2) {
+        const mid = (s + e) / 2;
+        while (ai < apps.length && apps[ai].e <= mid) ai++;
+        const as = apps[ai];
+        if (as && as.s <= mid) page = pages(as);
+        if (!page && doc.name && doc.name !== doc.key) page = doc.name;
+      }
       const c = hashColor(doc.grp || doc.key);
-      return { s, e, color: c, ink: inkFor(c), label: doc.kind === 2 ? doc.grp : doc.name, group: doc.kind === 2 ? 'w' + doc.grp : 'f' + doc.key, search: doc.key + ' ' + doc.name, kind: 'doc', doc, appId: a };
+      return { s, e, color: c, ink: inkFor(c), label: doc.kind === 2 ? doc.grp : doc.name, group: doc.kind === 2 ? 'w' + doc.grp : 'f' + doc.key, search: doc.key + ' ' + doc.name + ' ' + page, kind: 'doc', doc, page, appId: a };
     });
     lanes = [
       { id: 'tags', label: t('Tags'), icon: 'tag', h: 40, segs: tagSegs, style: 'tags' },
@@ -175,6 +210,37 @@ export function mount(el, params) {
       { id: 'apps', label: t('Applications'), icon: 'app', h: 48, segs: apps, style: 'bar' },
       { id: 'docs', label: t('Documents'), icon: 'file', h: 40, segs: docs, style: 'bar' });
     if (d.shots.length) lanes.push({ id: 'shots', label: t('Screenshots'), icon: 'image', h: 64, style: 'shots', segs: d.shots.map((ts) => ({ s: ts, e: ts + 1, kind: 'shot', ts, thumb: api.shotURL(ts, true) })) });
+  }
+
+  // Returns seg -> cleaned page title for browser windows. A trailing
+  // " - <profile>" shared by most titles of a browser is dropped too.
+  function pageTitles(apps) {
+    const byApp = new Map();
+    for (const sg of apps) {
+      if (!BROWSERS.has(sg.app.key) || !sg.title) continue;
+      let m = byApp.get(sg.app.id);
+      if (!m) byApp.set(sg.app.id, (m = { n: 0, tails: new Map() }));
+      const p = stripBrowser(sg.title);
+      const i = p.lastIndexOf(' - ');
+      m.n++;
+      if (i > 0) m.tails.set(p.slice(i), (m.tails.get(p.slice(i)) || 0) + 1);
+    }
+    const profile = new Map();
+    for (const [id, m] of byApp) {
+      for (const [tail, n] of m.tails) if (m.n >= 4 && n / m.n >= 0.5) profile.set(id, tail);
+    }
+    const cache = new Map();
+    return (sg) => {
+      if (!BROWSERS.has(sg.app.key) || !sg.title) return '';
+      let v = cache.get(sg.title);
+      if (v === undefined) {
+        v = pageTitle(sg.title);
+        const tail = profile.get(sg.app.id);
+        if (tail && v.endsWith(tail) && v.length > tail.length) v = v.slice(0, -tail.length);
+        cache.set(sg.title, v);
+      }
+      return v;
+    };
   }
 
   // Extend the open segments to "now" between refreshes so the view is live.
@@ -262,9 +328,20 @@ export function mount(el, params) {
       button('', { icon: 'trash', small: true, variant: 'ghost', title: t('Clear tags in selection') + ' (Del)', onClick: clearTags }),
       button('', { icon: 'zoomIn', small: true, variant: 'ghost', title: t('Zoom to selection'), onClick: () => tl.zoomTo(sel.s, sel.e) }),
       button('', { icon: 'x', small: true, variant: 'ghost', title: t('Clear selection') + ' (Esc)', onClick: () => tl.setSelection(null) }));
-    const x = (tl.x(sel.s) + tl.x(sel.e)) / 2;
+    positionSelBar();
+  }
+
+  // Keeps the selection bar above the selected range while the timeline is
+  // panned or zoomed; hidden when the range is out of view.
+  function positionSelBar() {
+    if (!sel || selBar.hidden) return;
+    const L = tl.labelW, R = tl.labelW + tl.plotW;
+    const x0 = Math.max(L, tl.x(sel.s)), x1 = Math.min(R, tl.x(sel.e));
+    if (x1 < L || x0 > R || x1 < x0) { selBar.style.visibility = 'hidden'; return; }
+    selBar.style.visibility = '';
     const w = selBar.offsetWidth || 360;
-    selBar.style.left = Math.max(8, Math.min(tlHost.clientWidth - w - 8, x - w / 2)) + 'px';
+    const x = tlHost.offsetLeft + (x0 + x1) / 2;
+    selBar.style.left = Math.max(8, Math.min(tlCard.clientWidth - w - 8, x - w / 2)) + 'px';
   }
 
   // ---- summaries ----
@@ -293,7 +370,7 @@ export function mount(el, params) {
         let s = sites.get(doc.grp);
         if (!s) sites.set(doc.grp, (s = { grp: doc.grp, secs: 0, pages: new Map() }));
         s.secs += d;
-        const p = s.pages.get(doc.key) || { doc, secs: 0 };
+        const p = s.pages.get(doc.key) || { doc, secs: 0, title: sg.page };
         p.secs += d;
         s.pages.set(doc.key, p);
       } else {
@@ -380,7 +457,7 @@ export function mount(el, params) {
         if (open) {
           const pages = [...s.pages.values()].sort((x, y) => y.secs - x.secs);
           row.append(h('div', { class: 'sub-list' }, pages.slice(0, 80).map((p) => h('div', { class: 'sub-row', title: p.doc.key },
-            h('span', { class: 'row-name' }, h('span', null, p.doc.name && p.doc.name !== p.doc.key ? p.doc.name : shortURL(p.doc.key)), h('small', { class: 'mono' }, shortURL(p.doc.key))),
+            h('span', { class: 'row-name' }, h('span', null, p.title || (p.doc.name && p.doc.name !== p.doc.key ? p.doc.name : shortURL(p.doc.key))), h('small', { class: 'mono' }, shortURL(p.doc.key))),
             button('', { icon: 'external', small: true, variant: 'ghost', title: t('Open in browser'), onClick: () => api.post('open', { target: p.doc.key }) }),
             h('span', { class: 'row-dur' }, dur(p.secs))))));
         }
@@ -423,8 +500,8 @@ export function mount(el, params) {
 
   function renderShots() {
     const shots = data.shots;
-    if (!shots.length) { shotsCard.hidden = true; return; }
-    shotsCard.hidden = false;
+    board.setHidden('shots', !shots.length);
+    if (!shots.length) return;
     clear(shotsCard);
     const strip = h('div', { class: 'shot-strip' });
     shots.forEach((ts, i) => strip.append(h('button', { class: 'shot', type: 'button', onClick: () => openLightbox(shots, i) }, h('img', { src: api.shotURL(ts, true), loading: 'lazy', alt: '' }), h('span', null, clock(ts)))));

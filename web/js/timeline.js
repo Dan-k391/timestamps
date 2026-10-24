@@ -551,11 +551,12 @@ export class Timeline {
       ctx.restore();
       top += lane.h + this.gap;
     }
+    this.opts.onDraw && this.opts.onDraw();
 
     // Hover / mark outlines.
     for (const [seg, width] of [[this.mark, 2], [this.hover && this.hover.seg, 1.5]]) {
       if (!seg) continue;
-      const lane = this.lanes.find((l) => l.segs.includes(seg));
+      const lane = seg.laneId ? this.lanes.find((l) => l.id === seg.laneId) : this.lanes.find((l) => l.segs.includes(seg));
       if (!lane || lane.style === 'shots') continue;
       const lt = this.laneTopOf(lane);
       const x0 = Math.max(L, this.x(seg.s)), x1 = Math.min(L + pw, this.x(seg.e));

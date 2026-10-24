@@ -134,6 +134,19 @@ export function shortURL(u) {
   return u.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
 }
 
+const BROWSER_SUFFIX = /\s+[-—–]\s+(Google Chrome|Microsoft Edge|Brave|Opera|Vivaldi|Chromium|Mozilla Firefox|Firefox|Waterfox|LibreWolf|Floorp|Zen Browser|360安全浏览器|360极速浏览器|QQ浏览器|搜狗高速浏览器|Yandex|Arc|Thorium)(\s+(Beta|Dev|Canary|Nightly|Developer Edition))?$/;
+const MORE_PAGES = /\s+(and \d+ more pages?|和另外\s*\d+\s*个页面|和其他\s*\d+\s*个页面|及其他\s*\d+\s*个页面)(\s+[-—–]\s+.*)?$/;
+
+/** Window title without the browser name (profile name still attached). */
+export function stripBrowser(title) {
+  return title.replace(/\u200b/g, '').replace(BROWSER_SUFFIX, '').trim();
+}
+
+/** Page (tab) title from a browser window title. */
+export function pageTitle(title) {
+  return stripBrowser(title).replace(MORE_PAGES, '').trim();
+}
+
 export function baseName(p) {
   const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'));
   return i >= 0 ? p.slice(i + 1) : p;

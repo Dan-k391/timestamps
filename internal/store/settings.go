@@ -50,6 +50,14 @@ type Settings struct {
 
 	BackupDays int `json:"backupDays"` // automatic backup interval, 0 = off
 	BackupKeep int `json:"backupKeep"`
+
+	DayLayout []LayoutBlock `json:"dayLayout"` // order and width of the day view blocks
+}
+
+// LayoutBlock is one block of the day view board.
+type LayoutBlock struct {
+	ID string `json:"id"`
+	W  string `json:"w"` // 1/3 | 1/2 | 2/3 | full
 }
 
 // DefaultSettings mirrors ManicTime's defaults, with screenshots enabled at a
