@@ -85,14 +85,16 @@ export function mount(el, params) {
     state.settings.dayGrid = layout;
     api.post('settings', state.settings).catch((err) => toast(err.message, { type: 'error' }));
   }, 400);
-  // 12 columns; one row is 30 px. The timeline is as tall as its lanes.
+  // 12 columns (widths 4/6/8/12 = 1/3, 1/2, 2/3, full); one row is 30 px.
+  // Heights are picked from a short list; the timeline fits its lanes.
+  const W = [4, 6, 8, 12];
   const board = new Board(boardEl, [
-    { id: 'timeline', title: t('Timeline'), el: tlCard, x: 0, y: 0, w: 12, h: 11, minW: 6, autoHeight: true },
-    { id: 'activities', title: t('Activities'), el: listHost, x: 0, y: 11, w: 8, h: 13, minW: 4, minH: 7 },
-    { id: 'docs', title: t('Documents'), el: docsCard, x: 8, y: 11, w: 4, h: 13, minW: 3, minH: 5 },
-    { id: 'apps', title: t('Applications'), el: appsCard, x: 0, y: 24, w: 6, h: 10, minW: 3, minH: 5 },
-    { id: 'tags', title: t('Tags'), el: tagsCard, x: 6, y: 24, w: 6, h: 10, minW: 3, minH: 5 },
-    { id: 'shots', title: t('Screenshots'), el: shotsCard, x: 0, y: 34, w: 12, h: 6, minW: 3, minH: 4 },
+    { id: 'timeline', title: t('Timeline'), el: tlCard, x: 0, y: 0, w: 12, h: 11, widths: [8, 12], autoHeight: true },
+    { id: 'activities', title: t('Activities'), el: listHost, x: 0, y: 11, w: 8, h: 13, widths: [6, 8, 12], heights: [10, 13, 16, 20] },
+    { id: 'docs', title: t('Documents'), el: docsCard, x: 8, y: 11, w: 4, h: 13, widths: W, heights: [8, 10, 13, 16, 20] },
+    { id: 'apps', title: t('Applications'), el: appsCard, x: 0, y: 24, w: 6, h: 10, widths: W, heights: [8, 10, 13, 16] },
+    { id: 'tags', title: t('Tags'), el: tagsCard, x: 6, y: 24, w: 6, h: 10, widths: W, heights: [8, 10, 13, 16] },
+    { id: 'shots', title: t('Screenshots'), el: shotsCard, x: 0, y: 34, w: 12, h: 6, widths: W, heights: [5, 6, 8, 10] },
   ], (state.settings && state.settings.dayGrid) || [], saveLayout);
   board.setHidden('shots', true);
 
