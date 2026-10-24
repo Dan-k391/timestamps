@@ -147,9 +147,9 @@ func (db *DB) ImportManicTime(path string, progress Progress) (map[string]int64,
 			if !ok {
 				continue
 			}
-			state := Active
-			if strings.Contains(strings.ToLower(key), "away") {
-				state = Away
+			state, keep := usageState(key)
+			if !keep {
+				continue
 			}
 			stmt("INSERT INTO usage_seg(s, e, state, src) VALUES(?, ?, ?, 1)").Exec(s, e, state)
 			db.noteLen(TUsage, e-s)
@@ -365,6 +365,20 @@ func (db *DB) ImportManicTime(path string, progress Progress) (map[string]int64,
 	db.SetMeta("import.manictime", time.Now().Format(time.RFC3339))
 	db.touch()
 	return counts, nil
+}
+
+// usageState maps a ManicTime computer-usage group (ManicTime/Active, Away,
+// SessionLocked, PowerOff) to a usage state. Power off is not imported: time
+// without records is how this app represents a switched-off computer.
+func usageState(key string) (int, bool) {
+	k := strings.ToLower(key)
+	switch {
+	case strings.Contains(k, "poweroff") || strings.Contains(k, "power off"):
+		return 0, false
+	case strings.Contains(k, "away") || strings.Contains(k, "lock"):
+		return Away, true
+	}
+	return Active, true
 }
 
 // Domain extracts the host of a URL without a leading "www.".

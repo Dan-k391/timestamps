@@ -107,6 +107,20 @@ func TestDeleteRangeKeepsOutside(t *testing.T) {
 	}
 }
 
+func TestUsageState(t *testing.T) {
+	for key, want := range map[string][2]int{
+		"ManicTime/Active":        {Active, 1},
+		"ManicTime/Away":          {Away, 1},
+		"ManicTime/SessionLocked": {Away, 1},
+		"ManicTime/PowerOff":      {0, 0},
+	} {
+		st, keep := usageState(key)
+		if keep != (want[1] == 1) || (keep && st != want[0]) {
+			t.Errorf("usageState(%q) = %d, %v", key, st, keep)
+		}
+	}
+}
+
 func TestDomain(t *testing.T) {
 	for in, want := range map[string]string{
 		"https://www.bilibili.com/video/x": "bilibili.com",
