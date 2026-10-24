@@ -1,0 +1,11 @@
+{
+  "manifest_version": 2,
+  "name": "Timestamps - website tracking",
+  "version": "1.0.0",
+  "description": "Sends the address of the active tab to the Timestamps desktop app on this computer. Nothing leaves your PC.",
+  "permissions": ["tabs", "alarms", "http://127.0.0.1/*"],
+  "background": { "scripts": ["background.js"] },
+  "incognito": "spanning",
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
+  "browser_specific_settings": { "gecko": { "id": "timestamps-tracker@local", "strict_min_version": "109.0" } }
+}

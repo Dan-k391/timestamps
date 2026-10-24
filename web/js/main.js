@@ -1,0 +1,264 @@
+// App shell: sidebar, routing, live status, stopwatch, away prompt, theme.
+import { h, clear, icon, button, modal, tagInput, toast, appIcon, dropdown, toggle } from './ui.js';
+import { t, setLang } from './i18n.js';
+import { configure, dur, clock, today } from './fmt.js';
+import * as api from './api.js';
+import { state, refreshLive, loadTags, onChange } from './state.js';
+import { go, parse, onRoute } from './router.js';
+import * as dayView from './views/day.js';
+import * as statsView from './views/stats.js';
+import * as sheetView from './views/timesheet.js';
+import * as tagsView from './views/tags.js';
+import * as searchView from './views/search.js';
+import * as rulesView from './views/rules.js';
+import * as shotsView from './views/shots.js';
+import * as settingsView from './views/settings.js';
+
+const VIEWS = {
+  day: { mod: dayView, icon: 'day', label: 'Day view' },
+  stats: { mod: statsView, icon: 'stats', label: 'Statistics' },
+  timesheet: { mod: sheetView, icon: 'sheet', label: 'Timesheets' },
+  tags: { mod: tagsView, icon: 'tag', label: 'Tags' },
+  search: { mod: searchView, icon: 'search', label: 'Search' },
+  rules: { mod: rulesView, icon: 'sparkles', label: 'Autotag' },
+  screenshots: { mod: shotsView, icon: 'image', label: 'Screenshots' },
+  settings: { mod: settingsView, icon: 'settings', label: 'Settings' },
+};
+
+let current = null;
+let currentKey = '';
+const viewEl = document.getElementById('view');
+const nav = document.getElementById('nav');
+const liveEl = document.getElementById('live');
+const timerEl = document.getElementById('timer');
+
+function applyTheme() {
+  const pref = (state.settings && state.settings.theme) || 'system';
+  const dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  if (window.tsSetDark) window.tsSetDark(dark);
+  current && current.theme && current.theme();
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+
+function resolveLang(s) {
+  if (s.language && s.language !== 'auto') return s.language;
+  return (navigator.language || 'en').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+}
+
+function renderNav(active) {
+  clear(nav);
+  for (const [key, v] of Object.entries(VIEWS)) {
+    if (key === 'settings') continue;
+    nav.append(h('a', { href: '#/' + key + (key === 'day' ? '/' + today() : ''), class: 'nav-item' + (key === active ? ' on' : ''), title: t(v.label) }, icon(v.icon, 18), h('span', null, t(v.label))));
+  }
+  const s = document.getElementById('nav-settings');
+  clear(s);
+  s.append(h('a', { href: '#/settings', class: 'nav-item' + (active === 'settings' ? ' on' : ''), title: t('Settings') }, icon('settings', 18), h('span', null, t('Settings'))));
+}
+
+function show(route) {
+  const v = VIEWS[route.view] ? route.view : 'day';
+  const key = v + '/' + route.arg + '?' + JSON.stringify(route.params);
+  if (key === currentKey) return;
+  currentKey = key;
+  if (current && current.destroy) current.destroy();
+  clear(viewEl);
+  viewEl.scrollTop = 0;
+  renderNav(v);
+  const params = { ...route.params, arg: route.arg, date: route.arg };
+  const host = h('div');
+  viewEl.append(host);
+  current = VIEWS[v].mod.mount(host, params) || {};
+  document.title = 'Timestamps · ' + t(VIEWS[v].label);
+  if (route.params.away) setTimeout(() => promptAway(), 300);
+}
+
+// ---- live status card ----------------------------------------------------
+
+function renderLive() {
+  const l = state.live;
+  clear(liveEl);
+  if (!l) return;
+  const labels = { active: t('Tracking'), away: t('Away'), paused: t('Paused'), schedule: t('Outside schedule'), off: t('Idle') };
+  const head = h('div', { class: 'live-head' }, h('span', { class: 'live-dot ' + l.state }), h('span', { class: 'live-state' }, labels[l.state] || l.state),
+    h('div', { class: 'spacer' }),
+    button('', { icon: l.state === 'paused' ? 'play' : 'pause', small: true, variant: 'ghost', title: l.state === 'paused' ? t('Resume tracking') : t('Pause tracking'), onClick: (e) => {
+      if (l.state === 'paused') { api.post('resume').then(refreshLive); return; }
+      dropdown(e.currentTarget, [
+        { label: t('Pause for 15 minutes'), icon: 'pause', onClick: () => api.post('pause', { minutes: 15 }).then(refreshLive) },
+        { label: t('Pause for 1 hour'), icon: 'pause', onClick: () => api.post('pause', { minutes: 60 }).then(refreshLive) },
+        { label: t('Pause until I resume'), icon: 'pause', onClick: () => api.post('pause', { minutes: 0 }).then(refreshLive) },
+      ]);
+    } }));
+  liveEl.append(head);
+  if (l.state === 'active' && l.app) {
+    liveEl.append(h('div', { class: 'live-app' }, appIcon({ id: l.appId, icon: true, name: l.app }, 20),
+      h('div', { class: 'live-text' }, h('div', { class: 'live-name' }, l.app), h('div', { class: 'live-title', title: l.title }, l.doc || l.title || ''))));
+  } else if (l.state === 'paused' && l.pausedTill) {
+    liveEl.append(h('div', { class: 'live-title' }, t('Resumes at {0}', clock(l.pausedTill))));
+  } else if (l.state === 'away' && l.since) {
+    liveEl.append(h('div', { class: 'live-title' }, t('Since {0}', clock(l.since))));
+  }
+}
+
+// ---- stopwatch & countdown ------------------------------------------------
+
+function renderTimers() {
+  const tm = state.timers;
+  clear(timerEl);
+  if (!tm) return;
+  const now = Math.floor(Date.now() / 1000);
+  const offset = (tm.now || now) - now;
+  const sw = tm.stopwatch, cd = tm.countdown;
+  if (sw) {
+    const el = h('span', { class: 'timer-clock' }, dur(now + offset - sw.start, 'clock'));
+    timerEl.append(h('div', { class: 'timer running' },
+      h('div', { class: 'timer-row' }, icon('timer', 16), el, h('div', { class: 'spacer' }),
+        button('', { icon: 'stop', small: true, variant: 'primary', title: t('Stop and save'), onClick: async () => { await api.post('stopwatch/stop'); await refreshLive(); loadTags(); toast(t('Stopwatch saved as a tag'), { type: 'ok' }); } }),
+        button('', { icon: 'x', small: true, variant: 'ghost', title: t('Discard'), onClick: async () => { await api.post('stopwatch/stop', { discard: true }); refreshLive(); } })),
+      h('button', { class: 'timer-tags', type: 'button', onClick: editStopwatch }, sw.tags || t('Add tags…'))));
+    timerEl._tick = () => { el.textContent = dur(Math.floor(Date.now() / 1000) + offset - sw.start, 'clock'); };
+  } else if (cd) {
+    const el = h('span', { class: 'timer-clock' });
+    const upd = () => { el.textContent = dur(Math.max(0, cd.end - (Math.floor(Date.now() / 1000) + offset)), 'clock'); };
+    upd();
+    const total = cd.end - cd.start;
+    const bar = h('div', { class: 'timer-progress' }, h('div'));
+    timerEl.append(h('div', { class: 'timer running cd' },
+      h('div', { class: 'timer-row' }, icon('hourglass', 16), el, h('div', { class: 'spacer' }),
+        button('', { icon: 'x', small: true, variant: 'ghost', title: t('Cancel countdown'), onClick: async () => { await api.post('countdown/cancel'); refreshLive(); } })),
+      cd.label || cd.tags ? h('div', { class: 'timer-tags' }, cd.label || cd.tags) : null, bar));
+    timerEl._tick = () => { upd(); bar.firstChild.style.width = Math.min(100, ((Math.floor(Date.now() / 1000) + offset - cd.start) / total) * 100) + '%'; };
+    timerEl._tick();
+  } else {
+    timerEl._tick = null;
+    timerEl.append(h('div', { class: 'timer-buttons' },
+      button(t('Stopwatch'), { icon: 'timer', small: true, onClick: startStopwatch }),
+      button(t('Countdown'), { icon: 'hourglass', small: true, onClick: startCountdown })));
+  }
+}
+setInterval(() => timerEl._tick && timerEl._tick(), 1000);
+
+function startStopwatch() {
+  const ti = tagInput({ names: state.tagNames, combos: state.tagCombos, autofocus: true, onEnter: () => start() });
+  const notes = h('input', { class: 'input', placeholder: t('Notes (optional)') });
+  const start = async () => { await api.post('stopwatch/start', { tags: ti.value, notes: notes.value }); m.close(); refreshLive(); };
+  const m = modal({
+    title: t('Start stopwatch'), width: 460,
+    body: h('div', { class: 'form' }, h('label', { class: 'field' }, h('span', null, t('What are you working on?')), ti), h('label', { class: 'field' }, h('span', null, t('Notes')), notes),
+      h('p', { class: 'hint' }, t('When you stop it, the elapsed time is saved as a tag.'))),
+    actions: [{ label: t('Cancel') }, { label: t('Start'), primary: true, icon: 'play', onClick: start }],
+  });
+}
+
+function editStopwatch() {
+  const sw = state.timers.stopwatch;
+  const ti = tagInput({ value: sw.tags, names: state.tagNames, combos: state.tagCombos, autofocus: true });
+  const notes = h('input', { class: 'input', value: sw.notes || '', placeholder: t('Notes (optional)') });
+  modal({
+    title: t('Stopwatch'), width: 460,
+    body: h('div', { class: 'form' }, h('label', { class: 'field' }, h('span', null, t('Tags')), ti), h('label', { class: 'field' }, h('span', null, t('Notes')), notes)),
+    actions: [{ label: t('Cancel') }, { label: t('Save'), primary: true, onClick: async (close) => { await api.post('stopwatch/update', { tags: ti.value, notes: notes.value }); close(); refreshLive(); } }],
+  });
+}
+
+function startCountdown() {
+  let mins = 25;
+  const custom = h('input', { class: 'input num', type: 'number', min: 1, max: 600, value: 25 });
+  custom.addEventListener('input', () => (mins = +custom.value || 25));
+  const presets = h('div', { class: 'chips' }, [5, 10, 15, 25, 45, 60, 90].map((m) => h('button', { class: 'chip', type: 'button', onClick: () => { mins = m; custom.value = m; } }, m + ' min')));
+  const label = h('input', { class: 'input', placeholder: t('Label (optional)') });
+  const ti = tagInput({ names: state.tagNames, combos: state.tagCombos, placeholder: t('Tag the time when it ends (optional)') });
+  modal({
+    title: t('Start countdown'), width: 460,
+    body: h('div', { class: 'form' }, presets, h('label', { class: 'field' }, h('span', null, t('Minutes')), custom), h('label', { class: 'field' }, h('span', null, t('Label')), label), h('label', { class: 'field' }, h('span', null, t('Tags')), ti)),
+    actions: [{ label: t('Cancel') }, { label: t('Start'), primary: true, icon: 'play', onClick: async (close) => { await api.post('countdown/start', { secs: Math.round(mins * 60), tags: ti.value, label: label.value }); close(); refreshLive(); } }],
+  });
+}
+
+// ---- away prompt ----------------------------------------------------------
+
+let awayOpen = false;
+async function promptAway(specific) {
+  if (awayOpen) return;
+  await refreshLive();
+  const list = state.aways || [];
+  const a = specific || list[list.length - 1];
+  if (!a) return;
+  awayOpen = true;
+  const ti = tagInput({ names: state.tagNames, combos: state.tagCombos, autofocus: true, onEnter: () => save() });
+  const notes = h('input', { class: 'input', placeholder: t('Notes (optional)') });
+  let billable = false;
+  const recents = h('div', { class: 'chips' }, state.recentTags.slice(0, 8).map((r) => h('button', { class: 'chip', type: 'button', onClick: () => { ti.value = r; ti.input.focus(); } }, r)));
+  const quick = h('div', { class: 'chips' }, [t('Meeting'), t('Break'), t('Lunch'), t('Phone call')].map((r) => h('button', { class: 'chip ghost', type: 'button', onClick: () => { ti.value = r; ti.input.focus(); } }, r)));
+  let saved = false;
+  const save = async () => {
+    if (!ti.value.trim()) { ti.input.focus(); return; }
+    await api.post('aways/resolve', { s: a.s, e: a.e, tags: ti.value, notes: notes.value, billable });
+    saved = true;
+    loadTags();
+    m.close();
+  };
+  const m = modal({
+    title: t('Welcome back'), width: 500,
+    body: h('div', { class: 'form' },
+      h('div', { class: 'away-range' }, icon('clock', 18), h('div', null, h('b', null, `${clock(a.s)} – ${clock(a.e)}`), h('span', { class: 'muted' }, t('You were away for {0}', dur(a.e - a.s))))),
+      h('label', { class: 'field' }, h('span', null, t('What were you doing?')), ti),
+      state.recentTags.length ? recents : null, quick,
+      h('label', { class: 'field' }, h('span', null, t('Notes')), notes),
+      toggle(false, (v) => (billable = v), t('Billable'))),
+    actions: [{ label: t('Ignore'), onClick: async (close) => { await api.post('aways/resolve', { s: a.s, e: a.e }); close(); } }, { label: t('Save tag'), primary: true, icon: 'tag', onClick: save }],
+    onClose: () => { awayOpen = false; refreshLive(); if (saved && current && current.refresh) current.refresh({ type: 'tags' }); },
+  });
+}
+window.__showAway = promptAway;
+
+// ---- boot ---------------------------------------------------------------
+
+async function boot() {
+  const settings = await api.get('settings');
+  state.settings = settings;
+  setLang(resolveLang(settings));
+  configure(settings);
+  applyTheme();
+  document.getElementById('brand-name').textContent = 'Timestamps';
+  await Promise.all([refreshLive(), loadTags()]);
+  renderLive();
+  renderTimers();
+  onChange((what) => {
+    if (what === 'live') { renderLive(); renderTimers(); }
+    if (what === 'settings') { configure(state.settings); applyTheme(); }
+  });
+  onRoute(show);
+  if (!location.hash || location.hash === '#/' || location.hash === '#') go('day/' + today(), true);
+  show(parse());
+
+  let liveTm = 0;
+  api.events((ev) => {
+    if (ev.type === 'away' && state.settings.awayPrompt) setTimeout(() => promptAway(), 400);
+    if (['seg', 'state', 'timers', 'away'].includes(ev.type)) {
+      clearTimeout(liveTm);
+      liveTm = setTimeout(refreshLive, 250);
+    }
+    if (ev.type === 'tags') loadTags();
+    current && current.refresh && current.refresh(ev);
+  });
+  setInterval(refreshLive, 20000);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key.toLowerCase() === 'k') { e.preventDefault(); go('search'); }
+    if (e.key === 'F5' && parse().view !== 'day') e.preventDefault();
+  });
+  document.getElementById('collapse').onclick = () => {
+    document.body.classList.toggle('nav-collapsed');
+    try { localStorage.setItem('ts.nav', document.body.classList.contains('nav-collapsed') ? '1' : ''); } catch (_) { /* ignore */ }
+  };
+  try { if (localStorage.getItem('ts.nav')) document.body.classList.add('nav-collapsed'); } catch (_) { /* ignore */ }
+  window.__navigate = (route) => go(route.replace(/^\/+/, ''));
+  document.body.classList.add('ready');
+}
+
+boot().catch((err) => {
+  viewEl.append(h('div', { class: 'boot-error' }, icon('alert', 20), h('div', null, h('b', null, 'Timestamps could not start'), h('div', { class: 'muted' }, err.message))));
+});
