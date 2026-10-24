@@ -51,14 +51,17 @@ type Settings struct {
 	BackupDays int `json:"backupDays"` // automatic backup interval, 0 = off
 	BackupKeep int `json:"backupKeep"`
 
-	DayLayout       []LayoutBlock `json:"dayLayout"` // order and width of the day view blocks
-	MergeSubdomains bool          `json:"mergeSubdomains"`
+	DayGrid         []GridItem `json:"dayGrid"` // position and size of the day view blocks
+	MergeSubdomains bool       `json:"mergeSubdomains"`
 }
 
-// LayoutBlock is one block of the day view board.
-type LayoutBlock struct {
+// GridItem places one day view block on the 12-column grid (grid units).
+type GridItem struct {
 	ID string `json:"id"`
-	W  string `json:"w"` // 1/3 | 1/2 | 2/3 | full
+	X  int    `json:"x"`
+	Y  int    `json:"y"`
+	W  int    `json:"w"`
+	H  int    `json:"h"`
 }
 
 // DefaultSettings mirrors ManicTime's defaults, with screenshots enabled at a

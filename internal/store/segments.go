@@ -13,6 +13,7 @@ type AppInfo struct {
 	Path  string `json:"path"`
 	Color string `json:"color"`
 	Icon  bool   `json:"icon"`
+	IconV int64  `json:"iconV,omitempty"` // changes when the icon does (cache key)
 }
 
 // DocInfo describes a tracked document (file, folder or web page).
@@ -199,6 +200,17 @@ func (db *DB) DeleteShots(ts []int64) {
 	db.touch()
 }
 
+// SetAppIcon replaces an app's icon when it differs from the stored one.
+func (db *DB) SetAppIcon(id int64, png []byte) {
+	res, err := db.sql.Exec("UPDATE app SET icon = ? WHERE id = ? AND (icon IS NULL OR icon != ?)", png, id, png)
+	if err != nil {
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		db.touch()
+	}
+}
+
 // AppIcon returns the PNG icon of an app.
 func (db *DB) AppIcon(id int64) []byte {
 	var b []byte
@@ -208,7 +220,7 @@ func (db *DB) AppIcon(id int64) []byte {
 
 // Apps lists all applications.
 func (db *DB) Apps() []AppInfo {
-	rows, err := db.sql.Query("SELECT id, key, name, path, color, icon IS NOT NULL FROM app ORDER BY name")
+	rows, err := db.sql.Query("SELECT id, key, name, path, color, COALESCE(length(icon), 0) FROM app ORDER BY name")
 	if err != nil {
 		return nil
 	}
@@ -216,7 +228,8 @@ func (db *DB) Apps() []AppInfo {
 	var out []AppInfo
 	for rows.Next() {
 		var a AppInfo
-		rows.Scan(&a.ID, &a.Key, &a.Name, &a.Path, &a.Color, &a.Icon)
+		rows.Scan(&a.ID, &a.Key, &a.Name, &a.Path, &a.Color, &a.IconV)
+		a.Icon = a.IconV > 0
 		out = append(out, a)
 	}
 	return out

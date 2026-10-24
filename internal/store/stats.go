@@ -13,6 +13,7 @@ type Total struct {
 	Name  string `json:"name"`
 	Color string `json:"color,omitempty"`
 	Icon  bool   `json:"icon,omitempty"`
+	IconV int64  `json:"iconV,omitempty"`
 	Kind  int    `json:"kind,omitempty"`
 	Secs  int64  `json:"secs"`
 }
@@ -99,7 +100,7 @@ func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 	// Applications.
 	// Aggregate first, then join: joining per segment would read every
 	// app row (and its icon) once per segment.
-	rows, err = db.sql.Query(`SELECT g.app, a.key, a.name, a.color, a.icon IS NOT NULL, g.t FROM
+	rows, err = db.sql.Query(`SELECT g.app, a.key, a.name, a.color, COALESCE(length(a.icon), 0), g.t FROM
 		(SELECT app, SUM(MIN(e, ?) - MAX(s, ?)) t FROM app_seg WHERE s >= ? AND s < ? AND e > ? GROUP BY app) g
 		JOIN app a ON a.id = g.app ORDER BY g.t DESC LIMIT 300`, b, a, db.lowS(TApp, a), b, a)
 	if err != nil {
@@ -107,7 +108,8 @@ func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 	}
 	for rows.Next() {
 		var t Total
-		rows.Scan(&t.ID, &t.Key, &t.Name, &t.Color, &t.Icon, &t.Secs)
+		rows.Scan(&t.ID, &t.Key, &t.Name, &t.Color, &t.IconV, &t.Secs)
+		t.Icon = t.IconV > 0
 		st.Apps = append(st.Apps, t)
 	}
 	rows.Close()

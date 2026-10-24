@@ -5,7 +5,7 @@ import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, escap
 import * as api from '../api.js';
 import { Timeline } from '../timeline.js';
 import { ActivityList } from '../activitylist.js';
-import { Board } from '../board.js';
+import { Board } from '../grid.js';
 import { state, loadTags } from '../state.js';
 import { debounce } from '../ui.js';
 import { openTagDialog } from '../tagdialog.js';
@@ -63,7 +63,8 @@ export function mount(el, params) {
       button('', { icon: 'zoomOut', title: t('Zoom out') + ' (-)', onClick: () => tl.zoomBy(1.6) }),
       button('', { icon: 'fit', title: t('Fit active hours') + ' (0)', onClick: () => tl.fit() }),
       button('24h', { title: t('Whole day') + ' (Shift+0)', onClick: () => tl.fit(!(data && tl.view[0] <= data.from && tl.view[1] >= data.to)), class: 'btn-text' }),
-      button('', { icon: 'zoomIn', title: t('Zoom in') + ' (+)', onClick: () => tl.zoomBy(1 / 1.6) })));
+      button('', { icon: 'zoomIn', title: t('Zoom in') + ' (+)', onClick: () => tl.zoomBy(1 / 1.6) })),
+    button('', { icon: 'layers', variant: 'ghost', title: t('Reset layout'), onClick: () => board.reset() }));
 
   // ---- timeline ----
   const tlHost = h('div', { class: 'tl-host' });
@@ -79,20 +80,20 @@ export function mount(el, params) {
   const listHost = h('div', { class: 'blk-fill' });
   const boardEl = h('div');
   el.append(header, boardEl);
-  const ALL = ['1/3', '1/2', '2/3', 'full'];
   const saveLayout = debounce((layout) => {
     if (!state.settings) return;
-    state.settings.dayLayout = layout;
+    state.settings.dayGrid = layout;
     api.post('settings', state.settings).catch((err) => toast(err.message, { type: 'error' }));
   }, 400);
+  // 12 columns; one row is 30 px. The timeline is as tall as its lanes.
   const board = new Board(boardEl, [
-    { id: 'timeline', title: t('Timeline'), el: tlCard, widths: ['2/3', 'full'], w: 'full' },
-    { id: 'activities', title: t('Activities'), el: listHost, widths: ['1/2', '2/3', 'full'], w: '2/3' },
-    { id: 'docs', title: t('Documents'), el: docsCard, widths: ALL, w: '1/3' },
-    { id: 'apps', title: t('Applications'), el: appsCard, widths: ALL, w: '1/2' },
-    { id: 'tags', title: t('Tags'), el: tagsCard, widths: ALL, w: '1/2' },
-    { id: 'shots', title: t('Screenshots'), el: shotsCard, widths: ALL, w: 'full' },
-  ], (state.settings && state.settings.dayLayout) || [], saveLayout);
+    { id: 'timeline', title: t('Timeline'), el: tlCard, x: 0, y: 0, w: 12, h: 11, minW: 6, autoHeight: true },
+    { id: 'activities', title: t('Activities'), el: listHost, x: 0, y: 11, w: 8, h: 13, minW: 4, minH: 7 },
+    { id: 'docs', title: t('Documents'), el: docsCard, x: 8, y: 11, w: 4, h: 13, minW: 3, minH: 5 },
+    { id: 'apps', title: t('Applications'), el: appsCard, x: 0, y: 24, w: 6, h: 10, minW: 3, minH: 5 },
+    { id: 'tags', title: t('Tags'), el: tagsCard, x: 6, y: 24, w: 6, h: 10, minW: 3, minH: 5 },
+    { id: 'shots', title: t('Screenshots'), el: shotsCard, x: 0, y: 34, w: 12, h: 6, minW: 3, minH: 4 },
+  ], (state.settings && state.settings.dayGrid) || [], saveLayout);
   board.setHidden('shots', true);
 
   const tl = new Timeline(tlHost, {
@@ -180,7 +181,7 @@ export function mount(el, params) {
       const app = d.appMap[a] || { id: a, name: '?', color: '888888' };
       const title = d.titleMap[ti] || '';
       const c = hex(app.color);
-      return { s, e, color: c, ink: inkFor(c), label: app.name, group: 'a' + a, icon: app.icon ? api.iconURL(a) : null, search: app.name + ' ' + title, kind: 'app', app, title };
+      return { s, e, color: c, ink: inkFor(c), label: app.name, group: 'a' + a, icon: app.icon ? api.iconURL(a, app.iconV) : null, search: app.name + ' ' + title, kind: 'app', app, title };
     });
     const pages = pageTitles(apps);
     const mergeSub = !state.settings || state.settings.mergeSubdomains !== false;

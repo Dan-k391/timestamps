@@ -110,8 +110,8 @@ export function mount(el, params) {
         h('span', { class: 'row-pct' }, pct(secs, total)), h('span', { class: 'row-dur' }, dur(secs))));
 
     body.append(h('div', { class: 'grid-2' },
-      listCard(t('Applications'), 'app', d.apps, (a, max, total) => row(appIcon({ id: a.id, icon: a.icon, name: a.name, color: a.color }, 18), a.name, null, a.secs, max, total, hex(a.color),
-        () => detail('app', a.name, { id: a.id }, from, to, appIcon({ id: a.id, icon: a.icon, name: a.name, color: a.color }, 22)))),
+      listCard(t('Applications'), 'app', d.apps, (a, max, total) => row(appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 18), a.name, null, a.secs, max, total, hex(a.color),
+        () => detail('app', a.name, { id: a.id }, from, to, appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 22)))),
       listCard(t('Websites'), 'globe', d.sites, (s, max, total) => row(kindIcon(2, s.key, 18), s.key, null, s.secs, max, total, hashColor(s.key),
         () => detail('site', s.key, { key: s.key }, from, to, kindIcon(2, s.key, 22)))),
       listCard(t('Files'), 'file', d.files, (f, max, total) => row(kindIcon(1, f.key, 18), f.name, dirName(f.key), f.secs, max, total, hashColor(f.name),

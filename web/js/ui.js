@@ -139,7 +139,7 @@ export function button(label, opts = {}) {
 /** App icon image, or a coloured letter tile when no icon was captured. */
 export function appIcon(app, size = 18) {
   if (app && app.icon) {
-    const img = h('img', { class: 'app-icon', src: iconURL(app.id), width: size, height: size, alt: '', loading: 'lazy', draggable: 'false' });
+    const img = h('img', { class: 'app-icon', src: iconURL(app.id, app.iconV), width: size, height: size, alt: '', loading: 'lazy', draggable: 'false' });
     img.addEventListener('error', () => img.replaceWith(appIcon({ ...app, icon: false }, size)), { once: true });
     return img;
   }

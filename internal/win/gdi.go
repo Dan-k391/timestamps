@@ -71,6 +71,30 @@ func IconPNG(path string, size int) []byte {
 	return hiconPNG(hicon)
 }
 
+// WindowIconPNG returns the icon a window shows in its title bar and the
+// taskbar. Apps built on frameworks (Electron, Java, ...) set it at run time
+// while their executable only carries the framework's icon.
+func WindowIconPNG(hwnd uintptr) []byte {
+	for _, kind := range []uintptr{1, 2, 0} { // ICON_BIG, ICON_SMALL2, ICON_SMALL
+		var res uintptr
+		r, _, _ := pSendMessageTimeoutW.Call(hwnd, 0x007F, kind, 0, 0x0002, 150, uintptr(unsafe.Pointer(&res))) // WM_GETICON, SMTO_ABORTIFHUNG
+		if r != 0 && res != 0 {
+			if b := hiconPNG(res); b != nil {
+				return b
+			}
+		}
+	}
+	for _, idx := range []int32{-14, -34} { // GCLP_HICON, GCLP_HICONSM
+		r, _, _ := pGetClassLongPtrW.Call(hwnd, uintptr(idx))
+		if r != 0 {
+			if b := hiconPNG(r); b != nil {
+				return b
+			}
+		}
+	}
+	return nil
+}
+
 func hiconPNG(hicon uintptr) []byte {
 	var ii iconInfo
 	if r, _, _ := pGetIconInfo.Call(hicon, uintptr(unsafe.Pointer(&ii))); r == 0 {

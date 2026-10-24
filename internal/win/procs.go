@@ -65,6 +65,8 @@ var (
 	pGetWindowRect                 = user32.NewProc("GetWindowRect")
 	pSetWindowPos                  = user32.NewProc("SetWindowPos")
 	pGetDpiForWindow               = user32.NewProc("GetDpiForWindow")
+	pSendMessageTimeoutW           = user32.NewProc("SendMessageTimeoutW")
+	pGetClassLongPtrW              = user32.NewProc("GetClassLongPtrW")
 	pGetUserDefaultUILanguage      = kernel32.NewProc("GetUserDefaultUILanguage")
 	pGetTickCount                  = kernel32.NewProc("GetTickCount")
 	pGetModuleHandleW              = kernel32.NewProc("GetModuleHandleW")

@@ -250,36 +250,56 @@ label.inline { color: var(--text-2); font-size: 12.5px; font-weight: 550; }
 .al-card { padding-bottom: 6px; }
 .al-count { margin-left: 8px; font-size: 11px; padding: 0 6px; vertical-align: 1px; }
 
-/* Day view board: blocks on a 6-column grid with fixed widths */
-.board { position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
-.blk { position: relative; min-width: 0; display: flex; flex-direction: column; }
-.blk > .card, .blk > .blk-fill { flex: 1; margin: 0; min-width: 0; }
-.blk-fill { display: flex; flex-direction: column; }
-.blk-fill > .card { flex: 1; }
-.blk.lifted { pointer-events: none; }
-.blk.lifted > .card, .blk.lifted > .blk-fill > .card { box-shadow: 0 24px 60px rgba(10, 14, 24, 0.28), 0 4px 14px rgba(10, 14, 24, 0.16); outline: 2px solid var(--accent); }
-.blk.lifted .blk-grip { pointer-events: auto; }
-.blk-holder { min-width: 0; border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--r-lg); background: var(--accent-soft); }
-.board-dragging .blk-tools { opacity: 0 !important; }
-.board-dragging .blk.lifted .blk-tools { opacity: 1 !important; }
-.blk-tools {
-  position: absolute; top: -12px; left: 50%; transform: translateX(-50%); z-index: 7; display: flex; gap: 2px; padding: 2px;
-  background: var(--surface); border: 1px solid var(--border-2); border-radius: 9px; box-shadow: var(--shadow-lg);
-  opacity: 0; pointer-events: none; transition: opacity 0.12s;
+/* Day view grid (react-grid-layout style): absolutely positioned blocks */
+.grid { position: relative; min-height: 200px; }
+.gi {
+  position: absolute; left: 0; top: 0; display: flex; flex-direction: column; min-width: 0;
+  transition: transform 220ms cubic-bezier(.2, .8, .2, 1), width 220ms cubic-bezier(.2, .8, .2, 1), height 220ms cubic-bezier(.2, .8, .2, 1);
 }
-.blk:hover > .blk-tools, .blk-tools:focus-within { opacity: 1; pointer-events: auto; }
-.blk-tools button {
-  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border: none; border-radius: 6px;
-  background: none; color: var(--text-2); font-size: 11.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+.grid:not(.ready) .gi, .grid:not(.ready) .gi-holder { transition: none; }
+.gi > .card, .gi > .blk-fill { flex: 1; min-height: 0; margin: 0; }
+.gi.auto > .card { flex: none; }
+.gi:not(.auto) > .card { overflow: hidden; }
+.blk-fill { display: flex; flex-direction: column; min-height: 0; }
+.blk-fill > .card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Lists fill whatever height their block has. */
+.gi .list-card { display: flex; flex-direction: column; }
+.gi .list-card .list { flex: 1 1 auto; max-height: none; min-height: 0; }
+.gi .al-body { flex: 1 1 auto; height: auto; min-height: 80px; }
+.gi .shots-card { display: flex; flex-direction: column; }
+.gi .shot-strip { flex: 1; min-height: 0; align-items: flex-start; }
+/* Empty parts of a block pick it up. */
+.gi > .card, .gi > .blk-fill > .card, .gi .card-head, .gi .card-head > h3, .gi .card-head > .icon, .gi .card-head > .spacer { cursor: grab; }
+:where(.gi .card *) { cursor: auto; }
+.gi.dragging, .gi.resizing { transition: none; z-index: 30; }
+.gi.dragging { opacity: 0.94; }
+.gi.dragging > .card, .gi.dragging > .blk-fill > .card, .gi.resizing > .card, .gi.resizing > .blk-fill > .card {
+  box-shadow: 0 24px 60px rgba(10, 14, 24, 0.26), 0 4px 14px rgba(10, 14, 24, 0.14); outline: 2px solid var(--accent);
 }
-.blk-tools button:hover { background: var(--surface-3); color: var(--text); }
-.blk-grip { cursor: grab; touch-action: none; }
-body.board-dragging { cursor: grabbing; user-select: none; }
-.board-dragging .blk-grip { cursor: grabbing; }
-@media (max-width: 1100px) {
-  .board { grid-template-columns: minmax(0, 1fr); }
-  .board > .blk { grid-column: auto !important; }
+.gi-holder {
+  position: absolute; left: 0; top: 0; z-index: 0; border-radius: var(--r-lg);
+  background: var(--accent-soft); border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: transform 150ms ease, width 150ms ease, height 150ms ease;
 }
+/* Borders resize the block (snapped to the grid). */
+.gi-edge { position: absolute; z-index: 8; }
+.gi-edge.e { right: -6px; top: 14px; bottom: 14px; width: 12px; cursor: ew-resize; }
+.gi-edge.w { left: -6px; top: 14px; bottom: 14px; width: 12px; cursor: ew-resize; }
+.gi-edge.s { bottom: -6px; left: 14px; right: 14px; height: 12px; cursor: ns-resize; }
+.gi-edge.se { right: -6px; bottom: -6px; width: 18px; height: 18px; cursor: nwse-resize; }
+.gi-edge.sw { left: -6px; bottom: -6px; width: 18px; height: 18px; cursor: nesw-resize; }
+.gi-edge::after { content: ""; position: absolute; border-radius: 3px; background: var(--accent); opacity: 0; transition: opacity 120ms; }
+.gi-edge.e::after, .gi-edge.w::after { left: 4px; top: 30%; bottom: 30%; width: 4px; }
+.gi-edge.s::after { top: 4px; left: 30%; right: 30%; height: 4px; }
+.gi-edge:hover::after, .gi.resizing .gi-edge::after { opacity: 0.7; }
+body.grid-dragging, body.grid-dragging * { cursor: grabbing !important; user-select: none; }
+body.grid-resizing { user-select: none; }
+body.resize-e, body.resize-w { cursor: ew-resize; }
+body.resize-s { cursor: ns-resize; }
+body.resize-se { cursor: nwse-resize; }
+body.resize-sw { cursor: nesw-resize; }
+.grid.narrow .gi-edge { display: none; }
+.grid.narrow .gi > .card, .grid.narrow .gi .card-head { cursor: auto; }
 .btn-group > .btn-text { padding: 0 10px; font-size: 12.5px; font-weight: 650; min-width: 44px; }
 .al-top { flex-wrap: wrap; row-gap: 8px; }
 .al-top .segmented button span { font-variant-numeric: tabular-nums; }

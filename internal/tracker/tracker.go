@@ -49,6 +49,7 @@ type Event struct {
 
 type proc struct {
 	path, exe, name string
+	framework       bool // executable carries a framework's identity and icon
 	at              time.Time
 }
 
@@ -86,6 +87,7 @@ type Tracker struct {
 	idle       int64
 	aways      []Away
 	procs      map[uint32]proc
+	iconFixed  map[int64]bool
 
 	lastDocHwnd  uintptr
 	lastDocTitle string
@@ -101,7 +103,7 @@ type Tracker struct {
 // New creates a tracker; call Start to begin sampling.
 func New(db *store.DB, shotsDir string) *Tracker {
 	t := &Tracker{
-		db: db, docs: newDocWorker(), Ext: NewExtHub(), usageState: -1, procs: map[uint32]proc{},
+		db: db, docs: newDocWorker(), Ext: NewExtHub(), usageState: -1, procs: map[uint32]proc{}, iconFixed: map[int64]bool{},
 		subs: map[chan Event]bool{}, stop: make(chan struct{}), done: make(chan struct{}), state: "off",
 	}
 	t.Shots = NewShooter(db, shotsDir)
@@ -318,6 +320,7 @@ func (t *Tracker) procInfo(hwnd uintptr) (uint32, proc) {
 	p := proc{path: path, exe: exe, at: time.Now()}
 	if path != "" {
 		p.name = win.AppDisplayName(path)
+		p.framework = win.IsFrameworkExe(path)
 	}
 	if len(t.procs) > 512 {
 		t.procs = map[uint32]proc{}
@@ -454,13 +457,16 @@ func (t *Tracker) step(now time.Time, st *store.Settings) string {
 		}
 		if p.exe != t.appKey || title != t.appTitle {
 			t.closeApp(nowS)
-			path := p.path
-			ref := t.db.AppID(p.exe, p.name, path, func() []byte {
-				if path == "" {
-					return nil
+			path, framework, fg := p.path, p.framework, hwnd
+			ref := t.db.AppID(p.exe, p.name, path, func() []byte { return appIcon(path, framework, fg) })
+			// Re-read the icon once per run: apps change icons when they are
+			// updated, and older builds may have carried a framework's icon.
+			if !t.iconFixed[ref] {
+				t.iconFixed[ref] = true
+				if ic := appIcon(path, framework, fg); ic != nil {
+					t.db.SetAppIcon(ref, ic)
 				}
-				return win.IconPNG(path, 48)
-			})
+			}
 			tid := t.db.TitleID(title)
 			t.app = seg{id: t.db.BeginApp(nowS, nowS, ref, tid), s: nowS, e: nowS}
 			t.appKey, t.appTitle, t.appRef, t.appName = p.exe, title, ref, p.name
@@ -497,6 +503,22 @@ func (t *Tracker) step(now time.Time, st *store.Settings) string {
 }
 
 func (t *Tracker) emitAsync(typ string) { go t.emit(typ) }
+
+// appIcon picks the icon for a new app: the window's for framework-based
+// apps, otherwise the executable's (falling back to the other one).
+func appIcon(path string, framework bool, hwnd uintptr) []byte {
+	if framework {
+		if ic := win.WindowIconPNG(hwnd); ic != nil {
+			return ic
+		}
+	}
+	if path != "" {
+		if ic := win.IconPNG(path, 48); ic != nil {
+			return ic
+		}
+	}
+	return win.WindowIconPNG(hwnd)
+}
 
 func (t *Tracker) setDoc(d Doc, nowS int64, st *store.Settings) bool {
 	if d.Kind == 0 {

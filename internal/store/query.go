@@ -179,11 +179,12 @@ func itoa(v int64) string {
 
 func (db *DB) fillMaps(d *Day, apps, titles, docs map[int64]bool) {
 	if len(apps) > 0 {
-		rows, err := db.sql.Query("SELECT id, key, name, path, color, icon IS NOT NULL FROM app WHERE id IN (" + idList(apps) + ")")
+		rows, err := db.sql.Query("SELECT id, key, name, path, color, COALESCE(length(icon), 0) FROM app WHERE id IN (" + idList(apps) + ")")
 		if err == nil {
 			for rows.Next() {
 				var a AppInfo
-				rows.Scan(&a.ID, &a.Key, &a.Name, &a.Path, &a.Color, &a.Icon)
+				rows.Scan(&a.ID, &a.Key, &a.Name, &a.Path, &a.Color, &a.IconV)
+				a.Icon = a.IconV > 0
 				d.AppMap[a.ID] = a
 			}
 			rows.Close()

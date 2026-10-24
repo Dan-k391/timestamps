@@ -599,7 +599,11 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 			return
 		}
 		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Cache-Control", "max-age=86400")
+		if r.URL.Query().Get("v") != "" {
+			w.Header().Set("Cache-Control", "max-age=31536000, immutable") // URL changes with the icon
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		w.Write(b)
 
 	case "shot":

@@ -253,6 +253,17 @@ func IsGenericAppName(name string) bool {
 	return genericNames[strings.ToLower(strings.TrimSpace(name))]
 }
 
+// IsFrameworkExe reports whether an executable only identifies itself as a
+// framework or runtime (e.g. an Electron app that kept Electron's metadata),
+// so its embedded icon is the framework's too.
+func IsFrameworkExe(path string) bool {
+	desc, product := VersionStrings(path)
+	if desc == "" && product == "" {
+		return false
+	}
+	return (desc == "" || IsGenericAppName(desc)) && (product == "" || IsGenericAppName(product))
+}
+
 // AppDisplayName picks a friendly name for an executable: its description,
 // else its product name, else the file name.
 func AppDisplayName(path string) string {
