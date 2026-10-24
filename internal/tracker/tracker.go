@@ -108,6 +108,7 @@ func New(db *store.DB, shotsDir string) *Tracker {
 	t.Shots.OnShot = func(ts int64) { t.emit("shot") }
 	s := db.Settings()
 	t.settings.Store(&s)
+	db.FixGenericNames(win.IsGenericAppName)
 	return t
 }
 

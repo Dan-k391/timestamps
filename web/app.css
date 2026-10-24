@@ -232,10 +232,46 @@ label.inline { color: var(--text-2); font-size: 12.5px; font-weight: 550; }
 .filter-wrap > .icon { position: absolute; left: 10px; color: var(--text-3); pointer-events: none; }
 .filter-wrap .input { padding-left: 30px; width: 230px; }
 .filter-info { position: absolute; right: 10px; font-size: 11.5px; pointer-events: none; }
-.tl-card { position: relative; padding: 10px 12px 6px; user-select: none; }
+.tl-card { position: relative; padding: 12px 14px 8px; user-select: none; }
 .tl-host { position: relative; width: 100%; }
+.tl-wrap { position: relative; }
 .tl-canvas, .tl-mini { display: block; }
-.tl-mini { cursor: pointer; margin-top: 4px; }
+.tl-mini { cursor: pointer; margin-top: 6px; }
+.tl-labels { position: absolute; left: 0; top: 0; pointer-events: none; }
+.tl-label {
+  position: absolute; left: 0; right: 10px; display: flex; align-items: center; gap: 8px; padding-left: 2px;
+  font-size: 12.5px; font-weight: 650; color: var(--text-2); white-space: nowrap; overflow: hidden;
+}
+.tl-label .icon { color: var(--text-3); }
+
+/* Activity list under the timeline */
+.al-card { margin-top: 14px; padding-bottom: 6px; }
+.al-top { flex-wrap: wrap; row-gap: 8px; }
+.al-top .segmented button span { font-variant-numeric: tabular-nums; }
+.al-info { font-size: 12px; font-variant-numeric: tabular-nums; margin-left: 4px; }
+.al-follow { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); cursor: pointer; user-select: none; }
+.al-follow input, .al-check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; cursor: pointer; }
+.al-bulk { display: flex; align-items: center; gap: 10px; padding: 6px 10px; margin: 0 0 8px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 13px; }
+.al-bulk > span { color: var(--text); margin-right: 4px; }
+.al-head, .al-row { display: grid; align-items: center; column-gap: 10px; padding: 0 10px 0 6px; }
+.al-head { height: 34px; border-bottom: 1px solid var(--border); margin: 0 -16px; padding-left: 22px; padding-right: 26px; }
+.al-th { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0; border: none; background: none; color: var(--text-3); font-size: 12px; font-weight: 650; cursor: pointer; text-align: left; min-width: 0; }
+.al-th span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.al-th:hover, .al-th.on { color: var(--text); }
+.al-th.num { justify-content: flex-end; }
+.al-body { position: relative; height: 408px; overflow: auto; margin: 0 -16px; padding: 4px 10px 4px 16px; outline: none; }
+.al-spacer { width: 1px; }
+.al-rows { position: absolute; left: 16px; right: 10px; top: 4px; }
+.al-row { height: 34px; border-radius: 7px; cursor: default; font-size: 13px; }
+.al-row:hover, .al-row.hover { background: var(--surface-3); }
+.al-row.in-sel { background: var(--sel); }
+.al-row.picked { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.al-row.checked { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.al-check, .al-lead { display: flex; align-items: center; justify-content: center; }
+.al-td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.al-td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.al-td.mono { font-size: 12px; color: var(--text-3); }
+.al-empty { padding: 28px; text-align: center; }
 .sel-bar {
   position: absolute; top: 2px; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 4px 5px 4px 12px;
   background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--shadow-lg); white-space: nowrap;

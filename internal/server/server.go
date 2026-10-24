@@ -404,6 +404,26 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 		s.T.Emit("tags")
 		writeJSON(w, r, map[string]any{"id": id})
 
+	case "tags/addMany":
+		var req struct {
+			Ranges   [][2]int64
+			Tags     string
+			Notes    string
+			Billable bool
+		}
+		if err := readJSON(r, &req); err != nil {
+			fail(w, err)
+			return
+		}
+		for _, rg := range req.Ranges {
+			if _, err := s.DB.AddTag(rg[0], rg[1], req.Tags, req.Notes, req.Billable); err != nil {
+				fail(w, err)
+				return
+			}
+		}
+		s.T.Emit("tags")
+		writeJSON(w, r, map[string]any{"count": len(req.Ranges)})
+
 	case "tags/update":
 		var t store.Tag
 		if err := readJSON(r, &t); err != nil {

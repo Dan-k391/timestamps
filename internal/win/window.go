@@ -181,17 +181,17 @@ func IsLocked() bool {
 	return !strings.EqualFold(windows.UTF16ToString(name[:]), "Default")
 }
 
-// FileDescription reads the FileDescription (falling back to ProductName)
-// from an executable's version resource.
-func FileDescription(path string) string {
+// VersionStrings reads the FileDescription and ProductName from an
+// executable's version resource.
+func VersionStrings(path string) (desc, product string) {
 	p := utf16Ptr(path)
 	size, _, _ := pGetFileVersionInfoSizeW.Call(uintptr(unsafe.Pointer(p)), 0)
 	if size == 0 {
-		return ""
+		return "", ""
 	}
 	buf := make([]byte, size)
 	if r, _, _ := pGetFileVersionInfoW.Call(uintptr(unsafe.Pointer(p)), 0, size, uintptr(unsafe.Pointer(&buf[0]))); r == 0 {
-		return ""
+		return "", ""
 	}
 	query := func(sub string) ([]byte, bool) {
 		q := utf16Ptr(sub)
@@ -212,9 +212,9 @@ func FileDescription(path string) string {
 		trans = append(trans, fmt.Sprintf("%04x%04x", binary.LittleEndian.Uint16(t[0:]), binary.LittleEndian.Uint16(t[2:])))
 	}
 	trans = append(trans, "040904b0", "040904e4", "080404b0", "000004b0")
-	for _, field := range []string{"FileDescription", "ProductName"} {
+	field := func(name string) string {
 		for _, tr := range trans {
-			b, ok := query(`\StringFileInfo\` + tr + `\` + field)
+			b, ok := query(`\StringFileInfo\` + tr + `\` + name)
 			if !ok {
 				continue
 			}
@@ -230,14 +230,37 @@ func FileDescription(path string) string {
 				return s
 			}
 		}
+		return ""
 	}
-	return ""
+	return field("FileDescription"), field("ProductName")
 }
 
-// AppDisplayName picks a friendly name for an executable.
+// genericNames are version-resource names shared by many unrelated apps
+// (frameworks, runtimes, hosts), which say nothing about the app itself.
+var genericNames = map[string]bool{}
+
+func init() {
+	for _, n := range []string{"electron", "chromium", "cef", "nw.js", "node.js", "python", "pythonw", "java(tm) platform se binary",
+		"openjdk platform binary", "java", "javaw", "application", "app", "launcher", "main", "setup", "windows host process (rundll32)",
+		"application frame host", "host process for windows services", "microsoft edge webview2", "tauri app", "qt application", "unity"} {
+		genericNames[n] = true
+	}
+}
+
+// IsGenericAppName reports whether name is a framework/runtime name rather
+// than the name of the app.
+func IsGenericAppName(name string) bool {
+	return genericNames[strings.ToLower(strings.TrimSpace(name))]
+}
+
+// AppDisplayName picks a friendly name for an executable: its description,
+// else its product name, else the file name.
 func AppDisplayName(path string) string {
-	if d := FileDescription(path); d != "" && !strings.EqualFold(d, "Application Frame Host") {
-		return d
+	desc, product := VersionStrings(path)
+	for _, n := range []string{desc, product} {
+		if n != "" && !IsGenericAppName(n) {
+			return n
+		}
 	}
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if base == "" {

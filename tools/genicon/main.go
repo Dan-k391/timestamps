@@ -16,37 +16,48 @@ import (
 
 type rgba struct{ r, g, b, a float64 }
 
-func capsule(px, py, x0, x1, y, r float64) float64 {
-	// distance to segment (x0,y)-(x1,y) minus radius
-	cx := math.Max(x0, math.Min(x1, px))
-	return math.Hypot(px-cx, py-y) - r
+// segDist is the distance from (px,py) to the segment (ax,ay)-(bx,by).
+func segDist(px, py, ax, ay, bx, by float64) float64 {
+	vx, vy := bx-ax, by-ay
+	t := math.Max(0, math.Min(1, ((px-ax)*vx+(py-ay)*vy)/(vx*vx+vy*vy)))
+	return math.Hypot(px-(ax+t*vx), py-(ay+t*vy))
 }
 
-func roundRect(px, py, r float64) float64 {
-	qx := math.Abs(px-0.5) - (0.5 - r)
-	qy := math.Abs(py-0.5) - (0.5 - r)
-	return math.Hypot(math.Max(qx, 0), math.Max(qy, 0)) + math.Min(math.Max(qx, qy), 0) - r
-}
+var (
+	rim   = rgba{0x1E, 0x29, 0x3B, 1} // dial rim and hands
+	dial  = rgba{0xFF, 0xFF, 0xFF, 1}
+	green = rgba{0x22, 0xC5, 0x5E, 1} // active time
+	red   = rgba{0xEF, 0x44, 0x44, 1} // away time
+)
 
+// sample draws a clock dial whose outer ring shows a day of activity:
+// a long green "active" arc and a shorter red "away" arc.
 func sample(x, y float64) rgba {
-	if roundRect(x, y, 0.23) > 0 {
+	dx, dy := x-0.5, y-0.5
+	r := math.Hypot(dx, dy)
+	ang := math.Mod(math.Atan2(dx, -dy)*180/math.Pi+360, 360) // clockwise from 12 o'clock
+	switch {
+	case r > 0.49:
 		return rgba{}
+	case r > 0.445:
+		return rim
 	}
-	t := (x*0.55 + y*0.45)
-	c1 := rgba{0x63, 0x66, 0xF1, 1}
-	c2 := rgba{0x0E, 0xA5, 0xA0, 1}
-	bg := rgba{c1.r + (c2.r-c1.r)*t, c1.g + (c2.g-c1.g)*t, c1.b + (c2.b-c1.b)*t, 1}
-	bars := []struct{ x0, x1, y, a float64 }{
-		{0.24, 0.60, 0.315, 1},
-		{0.40, 0.76, 0.50, 0.92},
-		{0.24, 0.48, 0.685, 0.80},
+	if r < 0.058 || segDist(x, y, 0.5, 0.5, 0.5, 0.23) < 0.034 {
+		return rim
 	}
-	for _, b := range bars {
-		if capsule(x, y, b.x0, b.x1, b.y, 0.068) <= 0 {
-			return rgba{255*b.a + bg.r*(1-b.a), 255*b.a + bg.g*(1-b.a), 255*b.a + bg.b*(1-b.a), 1}
+	h := 128 * math.Pi / 180
+	if segDist(x, y, 0.5, 0.5, 0.5+0.2*math.Sin(h), 0.5-0.2*math.Cos(h)) < 0.04 {
+		return rim
+	}
+	if r > 0.305 {
+		if ang > 4 && ang < 160 {
+			return green
+		}
+		if ang > 205 && ang < 282 {
+			return red
 		}
 	}
-	return bg
+	return dial
 }
 
 func render(size int) *image.NRGBA {

@@ -1,7 +1,7 @@
 // Dialog for adding or editing a tag segment.
-import { h, modal, tagInput, toggle, button, toast, confirmDialog } from './ui.js';
+import { h, modal, tagInput, toggle, button, toast, confirmDialog, icon } from './ui.js';
 import { t } from './i18n.js';
-import { dur, clock } from './fmt.js';
+import { dur, durLong, clock } from './fmt.js';
 import * as api from './api.js';
 import { state, loadTags } from './state.js';
 
@@ -43,12 +43,18 @@ export function openTagDialog(seg, { title, subtitle } = {}) {
     const chips = recent.length ? h('div', { class: 'chips' }, h('span', { class: 'chips-label' }, t('Recent')),
       recent.map((r) => h('button', { type: 'button', class: 'chip', onClick: () => { ti.value = r; ti.input.focus(); } }, r))) : null;
 
+    // With several ranges (checked rows in the activity list) the times are fixed.
+    const ranges = seg.ranges;
+    const rangeTotal = ranges ? ranges.reduce((n, r) => n + r[1] - r[0], 0) : 0;
     const body = h('div', { class: 'form' },
       subtitle ? h('p', { class: 'muted' }, subtitle) : null,
-      h('div', { class: 'field-row' },
-        h('label', { class: 'field' }, h('span', null, t('Start')), start),
-        h('label', { class: 'field' }, h('span', null, t('End')), end),
-        h('div', { class: 'field grow' }, h('span', null, t('Duration')), len)),
+      ranges
+        ? h('div', { class: 'away-range' }, icon('clock', 18), h('div', null, h('b', null, durLong(rangeTotal)),
+          h('span', { class: 'muted' }, t('{0} time ranges between {1} and {2}', ranges.length, clock(seg.s), clock(seg.e)))))
+        : h('div', { class: 'field-row' },
+          h('label', { class: 'field' }, h('span', null, t('Start')), start),
+          h('label', { class: 'field' }, h('span', null, t('End')), end),
+          h('div', { class: 'field grow' }, h('span', null, t('Duration')), len)),
       h('label', { class: 'field' }, h('span', null, t('Tags')), ti),
       chips,
       h('label', { class: 'field' }, h('span', null, t('Notes')), notes),
@@ -59,9 +65,10 @@ export function openTagDialog(seg, { title, subtitle } = {}) {
       const s = applyTime(seg.s, start.value), e = applyTime(seg.e, end.value);
       const tags = ti.value.trim();
       if (!tags) { ti.input.focus(); toast(t('Enter at least one tag'), { type: 'error' }); return; }
-      if (e <= s) { toast(t('End must be after start'), { type: 'error' }); return; }
+      if (!ranges && e <= s) { toast(t('End must be after start'), { type: 'error' }); return; }
       try {
-        if (seg.id) await api.post('tags/update', { id: seg.id, s, e, tags, notes: notes.value, billable });
+        if (ranges) await api.post('tags/addMany', { ranges, tags, notes: notes.value, billable });
+        else if (seg.id) await api.post('tags/update', { id: seg.id, s, e, tags, notes: notes.value, billable });
         else await api.post('tags/add', { s, e, tags, notes: notes.value, billable });
         changed = true;
         loadTags();

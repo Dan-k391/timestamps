@@ -222,6 +222,40 @@ func (db *DB) Apps() []AppInfo {
 	return out
 }
 
+// FixGenericNames renames apps stored under a framework name such as
+// "Electron" to their program name ("dischord.exe" -> "Dischord").
+func (db *DB) FixGenericNames(generic func(string) bool) {
+	rows, err := db.sql.Query("SELECT id, key, name FROM app")
+	if err != nil {
+		return
+	}
+	type fix struct {
+		id   int64
+		name string
+	}
+	var fixes []fix
+	for rows.Next() {
+		var id int64
+		var key, name string
+		rows.Scan(&id, &key, &name)
+		if !generic(name) {
+			continue
+		}
+		base := strings.TrimSuffix(key, ".exe")
+		if base == "" || generic(base) {
+			continue
+		}
+		fixes = append(fixes, fix{id, strings.ToUpper(base[:1]) + base[1:]})
+	}
+	rows.Close()
+	for _, f := range fixes {
+		db.sql.Exec("UPDATE app SET name = ? WHERE id = ?", f.name, f.id)
+	}
+	if len(fixes) > 0 {
+		db.touch()
+	}
+}
+
 // SetAppColor changes an app colour.
 func (db *DB) SetAppColor(id int64, color string) {
 	db.sql.Exec("UPDATE app SET color = ? WHERE id = ?", strings.TrimPrefix(color, "#"), id)

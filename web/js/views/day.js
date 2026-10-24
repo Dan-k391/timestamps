@@ -4,6 +4,7 @@ import { t } from '../i18n.js';
 import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, escapeHTML, shortURL, baseName, dirName, pct } from '../fmt.js';
 import * as api from '../api.js';
 import { Timeline } from '../timeline.js';
+import { ActivityList } from '../activitylist.js';
 import { state, loadTags } from '../state.js';
 import { openTagDialog } from '../tagdialog.js';
 import { openLightbox } from './shots.js';
@@ -44,8 +45,6 @@ export function mount(el, params) {
   const dateBtn = h('button', { class: 'btn date-btn', type: 'button', title: t('Pick a date') }, icon('day', 16), h('span', null, fmtDateLong(date)));
   dateBtn.onclick = async () => { const d = await pickDate(dateBtn, date); if (d) go('day/' + d); };
   const kpis = h('div', { class: 'kpis' });
-  const filterInput = h('input', { class: 'input filter', placeholder: t('Filter timeline…'), value: params.filter || '', spellcheck: 'false' });
-  const filterInfo = h('span', { class: 'filter-info muted' });
   const header = h('header', { class: 'toolbar' },
     h('div', { class: 'date-nav' },
       button('', { icon: 'left', title: t('Previous day') + ' (F7)', onClick: () => go('day/' + addDays(date, -1)) }),
@@ -54,7 +53,6 @@ export function mount(el, params) {
       date !== today() ? button(t('Today'), { variant: 'ghost', onClick: () => go('day/' + today()) }) : null),
     kpis,
     h('div', { class: 'spacer' }),
-    h('div', { class: 'filter-wrap' }, icon('filter', 14), filterInput, filterInfo),
     h('div', { class: 'btn-group' },
       button('', { icon: 'zoomOut', title: t('Zoom out') + ' (-)', onClick: () => tl.zoomBy(1.6) }),
       button('', { icon: 'fit', title: t('Fit active hours') + ' (0)', onClick: () => tl.fit() }),
@@ -72,24 +70,52 @@ export function mount(el, params) {
   const docsCard = h('section', { class: 'card list-card' });
   const tagsCard = h('section', { class: 'card list-card' });
   const shotsCard = h('section', { class: 'card shots-card', hidden: true });
-  el.append(header, tlCard, h('div', { class: 'grid-3' }, appsCard, docsCard, tagsCard), shotsCard);
+  const listHost = h('div');
+  el.append(header, tlCard, listHost, h('div', { class: 'grid-3' }, appsCard, docsCard, tagsCard), shotsCard);
 
   const tl = new Timeline(tlHost, {
-    onSelect: (s) => { sel = s; renderSelBar(); renderSummaries(); },
+    onSelect: (s) => { sel = s; renderSelBar(); renderSummaries(); list.setSelection(s); },
     onSelecting: (s) => { sel = s; renderSelBar(); },
     onHover: (hit, e) => {
+      list.hoverSeg(hit && hit.seg);
       if (!hit || !hit.seg || !e) { hideTip(); return; }
       showTip(e.clientX, e.clientY, tooltip(hit.seg));
     },
+    onView: (v) => scheduleListRange(v),
     onDblClick: (hit) => {
       if (!hit || !hit.seg) return;
       if (hit.seg.kind === 'tag') editTag(hit.seg.tag);
       else if (hit.seg.kind === 'shot') openShot(hit.seg.ts);
       else tagRange(hit.seg.s, hit.seg.e);
     },
-    onClickSeg: (hit) => { if (hit && hit.seg && hit.seg.kind === 'shot') openShot(hit.seg.ts); },
+    onClickSeg: (hit) => {
+      if (!hit || !hit.seg) return;
+      if (hit.seg.kind === 'shot') { openShot(hit.seg.ts); return; }
+      const tab = { app: 'apps', doc: 'docs', tag: 'tags', usage: 'usage' }[hit.seg.kind];
+      if (tab) { list.showTab(tab); list.pick(hit.seg); }
+    },
     onContext: (hit, e) => contextMenu(hit, e),
   });
+
+  const list = new ActivityList(listHost, {
+    onPick: (seg) => { tl.setSelection({ s: seg.s, e: seg.e }); tl.reveal(seg.s, seg.e); },
+    onHover: (seg) => tl.setMark(seg),
+    onOpen: (seg) => (seg.kind === 'tag' ? editTag(seg.tag) : tagRange(seg.s, seg.e)),
+    onContext: (seg, e) => contextMenu({ seg, t: null, lane: null }, e),
+    onTag: (segs) => tagMany(segs),
+    onDeleteTags: async (segs) => {
+      if (!(await confirmDialog(t('Delete {0} tags?', segs.length), { danger: true, ok: t('Delete') }))) return;
+      await api.post('tags/delete', { ids: segs.map((x) => x.tag.id) });
+      load();
+    },
+    onFilter: (q) => applyFilter(q),
+  });
+
+  let listRaf = 0;
+  function scheduleListRange(v) {
+    cancelAnimationFrame(listRaf);
+    listRaf = requestAnimationFrame(() => list.setRange(v[0], v[1]));
+  }
 
   function openShot(ts) {
     const list = data.shots;
@@ -124,31 +150,31 @@ export function mount(el, params) {
     const C = { active: cssVar('--active'), away: cssVar('--away') };
     const tagSegs = d.tags.map((tg) => {
       const c = d.tagMap[tg.tags] && d.tagMap[tg.tags].color ? hex(d.tagMap[tg.tags].color) : hashColor(tg.tags);
-      return { s: tg.s, e: tg.e, color: c, ink: inkFor(c), label: tg.tags, search: tg.tags + ' ' + tg.notes, kind: 'tag', tag: tg };
+      return { s: tg.s, e: tg.e, color: c, ink: inkFor(c), label: tg.tags, group: 't' + tg.id, search: tg.tags + ' ' + tg.notes, kind: 'tag', tag: tg };
     });
-    const usage = d.usage.map(([s, e, st]) => ({ s, e, state: st, color: st ? C.active : C.away, kind: 'usage', label: st ? t('Active') : t('Away') }));
+    const usage = d.usage.map(([s, e, st]) => ({ s, e, state: st, color: st ? C.active : C.away, kind: 'usage', group: 'u' + st, label: st ? t('Active') : t('Away') }));
     const apps = d.apps.map(([s, e, a, ti]) => {
       const app = d.appMap[a] || { id: a, name: '?', color: '888888' };
       const title = d.titleMap[ti] || '';
       const c = hex(app.color);
-      return { s, e, color: c, ink: inkFor(c), label: app.name, search: app.name + ' ' + title, kind: 'app', app, title };
+      return { s, e, color: c, ink: inkFor(c), label: app.name, group: 'a' + a, icon: app.icon ? api.iconURL(a) : null, search: app.name + ' ' + title, kind: 'app', app, title };
     });
     const docs = d.docs.map(([s, e, id, a]) => {
       const doc = d.docMap[id] || { kind: 1, key: '?', name: '?', grp: '?' };
       const c = hashColor(doc.grp || doc.key);
-      return { s, e, color: c, ink: inkFor(c), label: doc.kind === 2 ? doc.grp : doc.name, search: doc.key + ' ' + doc.name, kind: 'doc', doc, appId: a };
+      return { s, e, color: c, ink: inkFor(c), label: doc.kind === 2 ? doc.grp : doc.name, group: doc.kind === 2 ? 'w' + doc.grp : 'f' + doc.key, search: doc.key + ' ' + doc.name, kind: 'doc', doc, appId: a };
     });
     lanes = [
-      { id: 'tags', label: t('Tags'), h: 30, segs: tagSegs, style: 'tags' },
+      { id: 'tags', label: t('Tags'), icon: 'tag', h: 40, segs: tagSegs, style: 'tags' },
     ];
     if (d.auto && d.auto.length) {
-      lanes.push({ id: 'auto', label: t('Autotags'), h: 22, style: 'auto', segs: d.auto.map((a) => { const c = hashColor(a.tags); return { s: a.s, e: a.e, color: c, ink: inkFor(c), label: a.tags, kind: 'auto', auto: a }; }) });
+      lanes.push({ id: 'auto', label: t('Autotags'), icon: 'sparkles', h: 30, style: 'auto', segs: d.auto.map((a) => { const c = hashColor(a.tags); return { s: a.s, e: a.e, color: c, ink: inkFor(c), label: a.tags, group: 'x' + a.tags, kind: 'auto', auto: a }; }) });
     }
     lanes.push(
-      { id: 'usage', label: t('Computer'), h: 18, segs: usage, style: 'usage' },
-      { id: 'apps', label: t('Applications'), h: 34, segs: apps, style: 'bar' },
-      { id: 'docs', label: t('Documents'), h: 30, segs: docs, style: 'bar' });
-    if (d.shots.length) lanes.push({ id: 'shots', label: t('Screenshots'), h: 22, style: 'shots', segs: d.shots.map((ts) => ({ s: ts, e: ts + 1, kind: 'shot', ts })) });
+      { id: 'usage', label: t('Computer'), icon: 'monitor', h: 28, segs: usage, style: 'usage' },
+      { id: 'apps', label: t('Applications'), icon: 'app', h: 48, segs: apps, style: 'bar' },
+      { id: 'docs', label: t('Documents'), icon: 'file', h: 40, segs: docs, style: 'bar' });
+    if (d.shots.length) lanes.push({ id: 'shots', label: t('Screenshots'), icon: 'image', h: 64, style: 'shots', segs: d.shots.map((ts) => ({ s: ts, e: ts + 1, kind: 'shot', ts, thumb: api.shotURL(ts, true) })) });
   }
 
   // Extend the open segments to "now" between refreshes so the view is live.
@@ -168,6 +194,7 @@ export function mount(el, params) {
     tl.setNow(now);
   }
 
+  let filterInited = false;
   async function load(keepView = true) {
     try {
       data = await api.day(date);
@@ -179,7 +206,9 @@ export function mount(el, params) {
     buildLanes();
     tl.setData({ from: data.from, to: data.to, lanes, now: isToday() ? Math.floor(Date.now() / 1000) : 0 }, keepView);
     applyLive();
-    if (params.filter && !filterInput.dataset.init) { filterInput.dataset.init = '1'; applyFilter(); }
+    list.setLanes(lanes, data.from, data.to);
+    list.setRange(tl.view[0], tl.view[1]);
+    if (params.filter && !filterInited) { filterInited = true; list.setFilter(params.filter); }
     renderKpis();
     renderSummaries();
     renderShots();
@@ -476,7 +505,7 @@ export function mount(el, params) {
     if (seg && seg.kind === 'app') {
       items.push({ separator: true },
         { label: t('Copy window title'), icon: 'copy', onClick: () => navigator.clipboard.writeText(seg.title) },
-        { label: t('Filter by {0}', seg.app.name), icon: 'filter', onClick: () => { filterInput.value = seg.app.name; applyFilter(); } });
+        { label: t('Filter by {0}', seg.app.name), icon: 'filter', onClick: () => list.setFilter(seg.app.name) });
     }
     if (seg && seg.kind === 'shot') items.push({ label: t('Open screenshot'), icon: 'image', onClick: () => openShot(seg.ts) });
     if (!items.length) items.push({ label: t('Drag across the timeline to select time'), disabled: true });
@@ -484,27 +513,30 @@ export function mount(el, params) {
   }
 
   // ---- filter ----
-  function applyFilter() {
-    const q = filterInput.value.trim();
+  function applyFilter(q) {
     tl.setFilter(q);
-    if (!q) { filterInfo.textContent = ''; return; }
-    const lq = q.toLowerCase();
-    const ivals = [];
-    for (const l of lanes) for (const s of l.segs) if (l.id !== 'usage' && l.id !== 'shots' && (s.search || s.label || '').toLowerCase().includes(lq)) ivals.push([s.s, s.e]);
-    ivals.sort((a, b) => a[0] - b[0]);
-    let total = 0, cs = 0, ce = 0;
-    for (const [s, e] of ivals) { if (s > ce) { total += ce - cs; cs = s; ce = e; } else if (e > ce) ce = e; }
-    total += ce - cs;
-    filterInfo.textContent = dur(total);
   }
-  filterInput.addEventListener('input', applyFilter);
-  filterInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') { filterInput.value = ''; applyFilter(); filterInput.blur(); e.stopPropagation(); } });
+
+  // Tags each checked activity, merging neighbours into one tag.
+  async function tagMany(segs) {
+    const ranges = segs.map((x) => [x.s, x.e]).sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const r of ranges) {
+      const last = merged[merged.length - 1];
+      if (last && r[0] <= last[1] + 1) last[1] = Math.max(last[1], r[1]);
+      else merged.push([...r]);
+    }
+    if (await openTagDialog({ s: merged[0][0], e: merged[merged.length - 1][1], ranges: merged }, { title: t('Tag {0} activities', segs.length) })) {
+      list.checked.clear();
+      load();
+    }
+  }
 
   // ---- keyboard ----
   function onKey(e) {
     if (document.querySelector('.modal-wrap, .lightbox')) return;
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName);
-    if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); filterInput.focus(); filterInput.select(); return; }
+    if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); list.focusFilter(); return; }
     if (typing) return;
     const k = e.key;
     if (k === 'F7' || (k === 'ArrowLeft' && !e.ctrlKey)) { e.preventDefault(); go('day/' + addDays(date, -1)); }
@@ -545,12 +577,13 @@ export function mount(el, params) {
         reloadTimer = setTimeout(() => load(), ev.type === 'seg' ? 1200 : 150);
       }
     },
-    theme() { if (data) { buildLanes(); tl.setData({ from: data.from, to: data.to, lanes, now: tl.now }); } },
+    theme() { if (data) { buildLanes(); tl.setData({ from: data.from, to: data.to, lanes, now: tl.now }); list.setLanes(lanes, data.from, data.to); } },
     destroy() {
       document.removeEventListener('keydown', onKey);
       clearInterval(ticker);
       clearInterval(kpiTicker);
       tl.destroy();
+      list.destroy();
       hideTip();
     },
   };
