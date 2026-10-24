@@ -563,8 +563,11 @@ div.row-main { cursor: default; }
 
 /* ---- Timesheet --------------------------------------------------------- */
 .sheet-card { padding-bottom: 0; overflow: hidden; }
-.sheet .tag-col { min-width: 220px; max-width: 360px; }
-.sheet td.tag-col { display: flex; align-items: center; gap: 8px; }
+/* The tag column takes the room; day and total columns fit their numbers.
+   (Tag cells stay table cells: a flex cell leaves the table's columns.) */
+.sheet .tag-col { min-width: 220px; }
+.sheet .tag-name { display: inline-flex; align-items: center; gap: 8px; }
+.sheet th.num, .sheet td.num { width: 1%; min-width: 76px; white-space: nowrap; padding-left: 20px; }
 .sheet td.zero { color: var(--text-3); }
 .sheet .total { font-weight: 700; background: var(--surface-2); }
 .sheet tfoot td { font-weight: 700; border-top: 2px solid var(--border-2); border-bottom: none; background: var(--surface-2); }

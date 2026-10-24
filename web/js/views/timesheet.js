@@ -72,7 +72,7 @@ export function mount(el, params) {
     const table = h('table', { class: 'table sheet' },
       h('thead', null, h('tr', null, h('th', { class: 'tag-col' }, t('Tag')), cols.map((i) => h('th', { class: 'num', title: data.days[i] }, fmtDate(data.days[i], cols.length > 10 ? { day: 'numeric', month: 'numeric' } : { weekday: 'short', day: 'numeric' }))), h('th', { class: 'num total' }, t('Total')))),
       h('tbody', null, data.rows.map((r) => h('tr', null,
-        h('td', { class: 'tag-col', title: r.notes.join('\n') }, h('span', { class: 'dot', style: { background: hex(r.color) } }), r.key),
+        h('td', { class: 'tag-col', title: r.notes.join('\n') }, h('span', { class: 'tag-name' }, h('span', { class: 'dot', style: { background: hex(r.color) } }), r.key)),
         cols.map((i) => h('td', { class: 'num' + (r.cells[i] ? '' : ' zero') }, fmtCell(r.cells[i]))),
         h('td', { class: 'num total' }, fmtCell(r.total))))),
       h('tfoot', null, h('tr', null, h('td', { class: 'tag-col' }, t('Total')), cols.map((i) => h('td', { class: 'num' }, fmtCell(data.totals[i]))), h('td', { class: 'num total' }, fmtCell(data.total)))));
