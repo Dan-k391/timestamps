@@ -218,6 +218,13 @@ func (db *DB) AppIcon(id int64) []byte {
 	return b
 }
 
+// AppIconV returns the icon cache key of an app (0 when it has no icon).
+func (db *DB) AppIconV(id int64) int64 {
+	var v int64
+	db.sql.QueryRow("SELECT COALESCE(length(icon), 0) FROM app WHERE id = ?", id).Scan(&v)
+	return v
+}
+
 // Apps lists all applications.
 func (db *DB) Apps() []AppInfo {
 	rows, err := db.sql.Query("SELECT id, key, name, path, color, COALESCE(length(icon), 0) FROM app ORDER BY name")

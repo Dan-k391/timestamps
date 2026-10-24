@@ -93,7 +93,7 @@ function renderLive() {
     } }));
   liveEl.append(head);
   if (l.state === 'active' && l.app) {
-    liveEl.append(h('div', { class: 'live-app' }, appIcon({ id: l.appId, icon: true, name: l.app }, 20),
+    liveEl.append(h('div', { class: 'live-app' }, appIcon({ id: l.appId, icon: !!l.iconV, iconV: l.iconV, name: l.app }, 20),
       h('div', { class: 'live-text' }, h('div', { class: 'live-name' }, l.app), h('div', { class: 'live-title', title: l.title }, l.doc || l.title || ''))));
   } else if (l.state === 'paused' && l.pausedTill) {
     liveEl.append(h('div', { class: 'live-title' }, t('Resumes at {0}', clock(l.pausedTill))));

@@ -1,5 +1,5 @@
 // Day view: timeline lanes, live updates, tagging and summaries.
-import { h, clear, icon, button, appIcon, kindIcon, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
+import { h, clear, icon, button, appIcon, kindIcon, siteHost, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
 import { t } from '../i18n.js';
 import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser, baseDomain } from '../fmt.js';
 import * as api from '../api.js';
@@ -85,16 +85,16 @@ export function mount(el, params) {
     state.settings.dayGrid = layout;
     api.post('settings', state.settings).catch((err) => toast(err.message, { type: 'error' }));
   }, 400);
-  // 12 columns (widths 4/6/8/12 = 1/3, 1/2, 2/3, full); one row is 30 px.
-  // Heights are picked from a short list; the timeline fits its lanes.
+  // Full-width rows of 12 columns (widths 4/6/8/12 = 1/3, 1/2, 2/3, all);
+  // h is the default row height in 44 px units. The timeline fits its lanes.
   const W = [4, 6, 8, 12];
   const board = new Board(boardEl, [
-    { id: 'timeline', title: t('Timeline'), el: tlCard, x: 0, y: 0, w: 12, h: 11, widths: [8, 12], autoHeight: true },
-    { id: 'activities', title: t('Activities'), el: listHost, x: 0, y: 11, w: 8, h: 13, widths: [6, 8, 12], heights: [10, 13, 16, 20] },
-    { id: 'docs', title: t('Documents'), el: docsCard, x: 8, y: 11, w: 4, h: 13, widths: W, heights: [8, 10, 13, 16, 20] },
-    { id: 'apps', title: t('Applications'), el: appsCard, x: 0, y: 24, w: 6, h: 10, widths: W, heights: [8, 10, 13, 16] },
-    { id: 'tags', title: t('Tags'), el: tagsCard, x: 6, y: 24, w: 6, h: 10, widths: W, heights: [8, 10, 13, 16] },
-    { id: 'shots', title: t('Screenshots'), el: shotsCard, x: 0, y: 34, w: 12, h: 6, widths: W, heights: [5, 6, 8, 10] },
+    { id: 'timeline', el: tlCard, row: 0, w: 12, widths: [8, 12], autoHeight: true },
+    { id: 'activities', el: listHost, row: 1, w: 8, h: 13, widths: [6, 8, 12] },
+    { id: 'docs', el: docsCard, row: 1, w: 4, h: 13, widths: W },
+    { id: 'apps', el: appsCard, row: 2, w: 6, h: 10, widths: W },
+    { id: 'tags', el: tagsCard, row: 2, w: 6, h: 10, widths: W },
+    { id: 'shots', el: shotsCard, row: 3, w: 12, h: 6, widths: W },
   ], (state.settings && state.settings.dayGrid) || [], saveLayout);
   board.setHidden('shots', true);
 
@@ -203,7 +203,8 @@ export function mount(el, params) {
       const c = hashColor(doc.grp || doc.key);
       const site = doc.kind === 2 ? (mergeSub ? baseDomain(doc.grp) : doc.grp) : '';
       const sc = doc.kind === 2 ? hashColor(site) : c;
-      return { s, e, color: sc, ink: inkFor(sc), label: doc.kind === 2 ? site : doc.name, group: doc.kind === 2 ? 'w' + site : 'f' + doc.key, search: doc.key + ' ' + doc.name + ' ' + page, kind: 'doc', doc, page, site, appId: a };
+      const host = doc.kind === 2 ? siteHost(site) : '';
+      return { s, e, color: sc, ink: inkFor(sc), label: doc.kind === 2 ? site : doc.name, group: doc.kind === 2 ? 'w' + site : 'f' + doc.key, icon: host ? api.siteIconURL(host) : null, search: doc.key + ' ' + doc.name + ' ' + page, kind: 'doc', doc, page, site, appId: a };
     });
     lanes = [
       { id: 'tags', label: t('Tags'), icon: 'tag', h: 50, segs: tagSegs, style: 'tags' },

@@ -53,9 +53,11 @@ type Settings struct {
 
 	DayGrid         []GridItem `json:"dayGrid"` // position and size of the day view blocks
 	MergeSubdomains bool       `json:"mergeSubdomains"`
+	SiteIcons       bool       `json:"siteIcons"` // download icons the browsers don't have from the sites
 }
 
-// GridItem places one day view block on the 12-column grid (grid units).
+// GridItem places one day view block: Y is its row, X and W its columns (of
+// 12) and H the row height in grid units (0 for a row fitting its content).
 type GridItem struct {
 	ID string `json:"id"`
 	X  int    `json:"x"`
@@ -73,7 +75,7 @@ func DefaultSettings() Settings {
 		ScheduleDays: [7]bool{true, true, true, true, true, false, false}, ScheduleStart: "08:00", ScheduleEnd: "18:00",
 		ShotsOn: true, ShotsInterval: 5, ShotsMaxWidth: 1280, ShotsQuality: 60, ShotsKeepDays: 30, ShotsSkipSame: true,
 		Language: "auto", Theme: "system", DurationFormat: "hm", WeekStart: 1, Clock24: true,
-		CloseToTray: true, RecentTags: 10, BackupKeep: 5, MergeSubdomains: true,
+		CloseToTray: true, RecentTags: 10, BackupKeep: 5, MergeSubdomains: true, SiteIcons: true,
 	}
 }
 

@@ -23,6 +23,7 @@ type Live struct {
 	State      string `json:"state"` // active | away | paused | schedule | off
 	PausedTill int64  `json:"pausedTill"`
 	AppID      int64  `json:"appId"`
+	IconV      int64  `json:"iconV,omitempty"` // icon cache key, filled in by the server
 	App        string `json:"app"`
 	Title      string `json:"title"`
 	Doc        string `json:"doc"`

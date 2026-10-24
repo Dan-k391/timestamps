@@ -44,6 +44,7 @@ export async function day(date) {
 }
 
 export const iconURL = (id, v) => `/api/icon?id=${id}${v ? '&v=' + v : ''}`;
+export const siteIconURL = (host) => `/api/siteicon?d=${encodeURIComponent(host)}`;
 export const shotURL = (ts, thumb) => `/api/shot?ts=${ts}${thumb ? '&thumb=1' : ''}`;
 
 /** Download a server-generated file. */

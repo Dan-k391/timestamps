@@ -2,7 +2,7 @@
 // form controls shared by all views.
 import { t } from './i18n.js';
 import { hex, hashColor, dateKey, parseKey, weekStart } from './fmt.js';
-import { iconURL } from './api.js';
+import { iconURL, siteIconURL } from './api.js';
 
 // Native append() turns null/false into text; skip them like h() does so
 // views can pass optional children inline.
@@ -147,9 +147,26 @@ export function appIcon(app, size = 18) {
   return h('span', { class: 'app-icon letter', style: { width: size + 'px', height: size + 'px', background: hex(app && app.color), fontSize: Math.round(size * 0.55) + 'px' } }, name.trim().charAt(0).toUpperCase());
 }
 
+/** Host name of a website key (a host or a URL) that can have an icon. */
+export function siteHost(key) {
+  let host = String(key || '').toLowerCase();
+  if (/^[a-z][a-z0-9+.-]*:\/\//.test(host)) {
+    try { host = new URL(host).hostname; } catch (_) { return ''; }
+  }
+  host = host.split(/[/:?#]/)[0];
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) && !/^[\d.]+$/.test(host) ? host : '';
+}
+
+/** Website icon (from the browsers' cache or the site), or a coloured globe;
+ *  a file icon for files. */
 export function kindIcon(kind, key, size = 16) {
   if (kind === 2) {
-    return h('span', { class: 'doc-icon', style: { background: hashColor(key || '') } }, icon('globe', size - 4));
+    const globe = () => h('span', { class: 'doc-icon', style: { background: hashColor(key || '') } }, icon('globe', size - 4));
+    const host = siteHost(key);
+    if (!host) return globe();
+    const img = h('img', { class: 'site-icon', src: siteIconURL(host), width: size, height: size, alt: '', loading: 'lazy', draggable: 'false' });
+    img.addEventListener('error', () => img.replaceWith(globe()), { once: true });
+    return img;
   }
   return h('span', { class: 'doc-icon file' }, icon('file', size - 4));
 }

@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"timestamps/internal/favicon"
 	"timestamps/internal/store"
 	"timestamps/internal/tracker"
 	"timestamps/internal/xlsx"
@@ -52,6 +53,7 @@ type Host interface {
 type Server struct {
 	DB      *store.DB
 	T       *tracker.Tracker
+	Fav     *favicon.Finder
 	Host    Host
 	Web     fs.FS
 	DataDir string
@@ -302,6 +304,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 	switch route {
 	case "live":
 		l := s.T.Live()
+		if l.AppID != 0 {
+			l.IconV = s.DB.AppIconV(l.AppID)
+		}
 		writeJSON(w, r, map[string]any{"live": l, "timers": s.timers.State(), "aways": s.T.Aways(), "version": s.DB.Version()})
 
 	case "day":
@@ -604,6 +609,21 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 		} else {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
+		w.Write(b)
+
+	case "siteicon":
+		var b []byte
+		if s.Fav != nil {
+			b = s.Fav.Icon(r.URL.Query().Get("d"))
+		}
+		if b == nil {
+			w.Header().Set("Cache-Control", "max-age=3600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", http.DetectContentType(b))
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Cache-Control", "max-age=604800")
 		w.Write(b)
 
 	case "shot":

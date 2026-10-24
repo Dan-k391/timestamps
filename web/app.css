@@ -259,9 +259,6 @@ label.inline { color: var(--text-2); font-size: 12.5px; font-weight: 550; }
 .grid:not(.ready) .gi, .grid:not(.ready) .gi-holder { transition: none; }
 .gi > .card, .gi > .blk-fill { flex: 1; min-height: 0; margin: 0; }
 .gi.auto > .card { flex: none; }
-/* Pads a fit-to-content block down to its last grid row. */
-.gi.auto > .card::after { content: ""; display: block; height: var(--fill, 0px); }
-.grid.narrow .gi.auto > .card::after { display: none; }
 .gi:not(.auto) > .card { overflow: hidden; }
 .blk-fill { display: flex; flex-direction: column; min-height: 0; }
 .blk-fill > .card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -284,27 +281,26 @@ label.inline { color: var(--text-2); font-size: 12.5px; font-weight: 550; }
   background: var(--accent-soft); border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent);
   transition: transform 150ms ease, width 150ms ease, height 150ms ease;
 }
-/* Borders resize the block (snapped to the grid). */
+/* The gap after a block (right: border with the next block of the row;
+   bottom: the row's height) resizes, snapped to the allowed sizes. */
 .gi-edge { position: absolute; z-index: 8; }
-.gi-edge.e { right: -6px; top: 14px; bottom: 14px; width: 12px; cursor: ew-resize; }
-.gi-edge.w { left: -6px; top: 14px; bottom: 14px; width: 12px; cursor: ew-resize; }
-.gi-edge.s { bottom: -6px; left: 14px; right: 14px; height: 12px; cursor: ns-resize; }
-.gi-edge.se { right: -6px; bottom: -6px; width: 18px; height: 18px; cursor: nwse-resize; }
-.gi-edge.sw { left: -6px; bottom: -6px; width: 18px; height: 18px; cursor: nesw-resize; }
+.gi-edge.e { right: -14px; top: 14px; bottom: 14px; width: 14px; cursor: ew-resize; }
+.gi-edge.s { bottom: -14px; left: 14px; right: 14px; height: 14px; cursor: ns-resize; }
 .gi-edge::after { content: ""; position: absolute; border-radius: 3px; background: var(--accent); opacity: 0; transition: opacity 120ms; }
-.gi-edge.e::after, .gi-edge.w::after { left: 4px; top: 30%; bottom: 30%; width: 4px; }
-.gi-edge.s::after { top: 4px; left: 30%; right: 30%; height: 4px; }
+.gi-edge.e::after { left: 5px; top: 30%; bottom: 30%; width: 4px; }
+.gi-edge.s::after { top: 5px; left: 30%; right: 30%; height: 4px; }
 .gi-edge:hover::after, .gi.resizing .gi-edge::after { opacity: 0.7; }
 body.grid-dragging, body.grid-dragging * { cursor: grabbing !important; user-select: none; }
 body.grid-resizing { user-select: none; }
-body.resize-e, body.resize-w { cursor: ew-resize; }
+body.resize-e { cursor: ew-resize; }
 body.resize-s { cursor: ns-resize; }
-body.resize-se { cursor: nwse-resize; }
-body.resize-sw { cursor: nesw-resize; }
 .grid.narrow .gi-edge { display: none; }
 .grid.narrow .gi > .card, .grid.narrow .gi .card-head { cursor: auto; }
 .btn-group > .btn-text { padding: 0 10px; font-size: 12.5px; font-weight: 650; min-width: 44px; }
 .al-top { flex-wrap: wrap; row-gap: 8px; }
+/* In a block the list body takes the spare height; the header rows above it
+   keep their size (a wrapped filter would otherwise overlap the columns). */
+.gi .card-head, .gi .al-head, .gi .al-bulk { flex-shrink: 0; }
 .al-top .segmented button span { font-variant-numeric: tabular-nums; }
 .al-info { font-size: 12px; font-variant-numeric: tabular-nums; margin-left: 4px; }
 .al-follow { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); cursor: pointer; user-select: none; }
@@ -375,6 +371,10 @@ div.row-main { cursor: default; }
 .app-icon.letter { display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; border-radius: 5px; line-height: 1; }
 .doc-icon { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: #fff; flex: none; }
 .doc-icon.file { background: var(--surface-3); color: var(--text-2); }
+.site-icon { border-radius: 4px; flex: none; object-fit: contain; }
+/* Many site icons are dark on transparent: give them a light tile. */
+:root[data-theme="dark"] .site-icon { background: #f4f5f7; padding: 1px; }
+.hit-item .site-icon { width: 14px; height: 14px; }
 
 .shots-card { min-width: 0; }
 .shot-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }

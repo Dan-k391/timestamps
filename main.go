@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"timestamps/extension"
+	"timestamps/internal/favicon"
 	"timestamps/internal/server"
 	"timestamps/internal/store"
 	"timestamps/internal/tracker"
@@ -62,7 +63,10 @@ func main() {
 	if dir := os.Getenv("TIMESTAMPS_WEB_DIR"); dir != "" {
 		webFS = os.DirFS(dir) // development: serve the UI from disk
 	}
-	srv := &server.Server{DB: db, T: t, Web: webFS, DataDir: dataDir, ExtDir: extDir}
+	// Copies of the browsers' icon caches, one folder per data folder.
+	favTmp := filepath.Join(os.TempDir(), "timestamps-favicons-"+strconv.FormatUint(uint64(hashString(strings.ToLower(dataDir))), 16))
+	fav := favicon.New(db, favTmp, func() bool { return t.Settings().SiteIcons })
+	srv := &server.Server{DB: db, T: t, Fav: fav, Web: webFS, DataDir: dataDir, ExtDir: extDir}
 	app := newApp(db, t, srv, dataDir)
 	srv.Host = app
 	if err := srv.Listen(); err != nil {
@@ -81,6 +85,7 @@ func main() {
 
 	t.Stop()
 	srv.Close()
+	fav.Close()
 	db.Close()
 	log.Println("exited")
 }

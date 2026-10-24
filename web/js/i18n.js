@@ -111,6 +111,8 @@ const zh = {
   "Merge same website": "合并相同网站",
   "Merge subdomains": "合并子域名",
   "Count t.example.com, www.example.com and example.com as one website.": "将 t.example.com、www.example.com 和 example.com 视为同一个网站。",
+  "Download missing website icons": "下载缺少的网站图标",
+  "Icons come from your browsers' own icon cache first; only sites missing there are asked for their icon.": "图标优先取自浏览器自身的图标缓存；只有缓存里没有的网站才会向该网站请求图标。",
   "Activities": "活动列表",
   "Follow timeline": "跟随时间轴",
   "Show only what is visible in the timeline": "只显示时间轴中可见的部分",
