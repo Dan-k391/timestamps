@@ -126,9 +126,30 @@ export function mount(el, params) {
         row(t('Skip unchanged screens'), sw('shotsSkipSame')),
         row(t('Keep screenshots for'), select([[7, t('{0} days', 7)], [14, t('{0} days', 14)], [30, t('{0} days', 30)], [90, t('{0} days', 90)], [365, t('1 year')], [0, t('Forever')]], s.shotsKeepDays, (v) => save({ shotsKeepDays: +v })))),
       group(t('Storage'),
-        row(t('Folder'), h('div', { class: 'inline' }, h('span', { class: 'mono path' }, info.shotsDir), button(t('Open'), { small: true, icon: 'folder', onClick: () => api.post('open', { target: info.shotsDir }) }))),
+        row(t('Folder'), h('div', { class: 'inline wrap' }, h('span', { class: 'mono path' }, info.shotsDir),
+          button(t('Change…'), { small: true, icon: 'folder', onClick: pickShotsDir }),
+          button(t('Open'), { small: true, variant: 'ghost', icon: 'external', onClick: () => api.post('open', { target: info.shotsDir }) }),
+          info.shotsDir.toLowerCase() !== info.shotsDefault.toLowerCase() ? button(t('Default'), { small: true, variant: 'ghost', title: info.shotsDefault, onClick: () => moveShots('') }) : null),
+        t('New screenshots are saved here. Changing it moves the existing ones.')),
         row(t('Space used'), h('span', null, bytes(info.shotsSize) + ' · ' + info.db.Shots + ' ' + t('screenshots'))),
         row(t('Gallery'), button(t('View screenshots'), { small: true, icon: 'image', onClick: () => go('screenshots/' + today()) }))));
+  }
+
+  async function pickShotsDir() {
+    const r = await api.post('pick-folder', { title: t('Choose the screenshot folder'), dir: info.shotsDir });
+    if (r.path) moveShots(r.path);
+  }
+
+  // Moves the screenshots to dir ('' = the default folder in the data folder).
+  async function moveShots(dir) {
+    const to = dir || info.shotsDefault;
+    if (!(await confirmDialog(t('Save screenshots in {0}? The {1} existing screenshots ({2}) are moved there.', to, info.db.Shots, bytes(info.shotsSize)), { ok: t('Move') }))) return;
+    toast(t('Moving screenshots…'), { timeout: 2500 });
+    try {
+      const r = await api.post('shots/folder', { dir });
+      toast(t('Screenshots are now saved in {0}', r.dir), { type: 'ok', timeout: 5000 });
+    } catch (err) { toast(err.message, { type: 'error', timeout: 8000 }); }
+    show();
   }
 
   function browser() {
@@ -242,10 +263,11 @@ export function mount(el, params) {
       window.__desktop ? row(t('Exit'), button(t('Exit Timestamps'), { icon: 'logout', small: true, variant: 'danger', onClick: () => window.tsQuit && window.tsQuit() }), t('Stops tracking until you start the app again.')) : null));
   }
 
-  (async () => {
+  async function show() {
     info = await api.get('info');
     clear(body);
     ({ general, tracking, screenshots, browser, data, shortcuts, about }[section] || general)();
-  })();
+  }
+  show();
   return {};
 }

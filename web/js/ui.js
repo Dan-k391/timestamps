@@ -147,6 +147,31 @@ export function appIcon(app, size = 18) {
   return h('span', { class: 'app-icon letter', style: { width: size + 'px', height: size + 'px', background: hex(app && app.color), fontSize: Math.round(size * 0.55) + 'px' } }, name.trim().charAt(0).toUpperCase());
 }
 
+/** Lets the mouse wheel scroll el sideways, smoothly; at either end the page
+ *  scrolls as usual. */
+export function wheelScrollsX(el) {
+  let target = null, raf = 0;
+  const step = () => {
+    const before = el.scrollLeft;
+    const d = target - before;
+    el.scrollLeft = Math.abs(d) < 2 ? target : before + d * 0.3;
+    if (el.scrollLeft === target || el.scrollLeft === before) { el.scrollLeft = target; target = null; raf = 0; return; }
+    raf = requestAnimationFrame(step);
+  };
+  el.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    const max = el.scrollWidth - el.clientWidth;
+    if (max <= 0) return;
+    const from = target ?? el.scrollLeft;
+    const d = e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? el.clientWidth : 1) * 1.5;
+    const next = Math.max(0, Math.min(max, from + d));
+    if (Math.abs(next - from) < 1) return; // at the end: the page scrolls
+    e.preventDefault();
+    target = next;
+    if (!raf) raf = requestAnimationFrame(step);
+  }, { passive: false });
+}
+
 /** Host name of a website key (a host or a URL) that can have an icon. */
 export function siteHost(key) {
   let host = String(key || '').toLowerCase();

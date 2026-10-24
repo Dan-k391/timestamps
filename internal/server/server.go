@@ -43,6 +43,7 @@ type Host interface {
 	Show(route string)
 	Notify(title, text string)
 	PickFile(title, filter string) string
+	PickFolder(title, dir string) string
 	Open(target string)
 	Reveal(path string)
 	ApplySettings(old, cur store.Settings)
@@ -571,6 +572,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 				fail(w, err)
 				return
 			}
+			next.ShotsDir = cur.ShotsDir // changed with shots/folder, which moves the files
 			if err := s.DB.SaveSettings(next); err != nil {
 				fail(w, err)
 				return
@@ -761,8 +763,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 		}
 		writeJSON(w, r, map[string]any{
 			"version": Version, "dataDir": s.DataDir, "extDir": s.ExtDir, "dbSize": size, "db": s.DB.Info(),
-			"manictime": mt, "ext": s.T.Ext.Connected(), "url": s.URL(), "shotsDir": s.T.Shots.Dir, "shotsSize": dirSize(s.T.Shots.Dir),
-			"lastBackup": s.DB.Meta("backup.last"),
+			"manictime": mt, "ext": s.T.Ext.Connected(), "url": s.URL(), "shotsDir": s.T.Shots.Dir(), "shotsSize": dirSize(s.T.Shots.Dir()),
+			"shotsDefault": s.defaultShotsDir(),
+			"lastBackup":   s.DB.Meta("backup.last"),
 		})
 
 	case "import/manictime":
@@ -847,6 +850,45 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 		readJSON(r, &req)
 		writeJSON(w, r, map[string]any{"path": s.Host.PickFile(req.Title, req.Filter)})
 
+	case "pick-folder":
+		var req struct{ Title, Dir string }
+		readJSON(r, &req)
+		writeJSON(w, r, map[string]any{"path": s.Host.PickFolder(req.Title, req.Dir)})
+
+	case "shots/folder":
+		// Moves the screenshots to another folder ("" = the default one).
+		var req struct{ Dir string }
+		if err := readJSON(r, &req); err != nil {
+			fail(w, err)
+			return
+		}
+		dir := req.Dir
+		if dir == "" {
+			dir = s.defaultShotsDir()
+		}
+		if err := checkShotsDir(dir, s.T.Shots.Dir()); err != nil {
+			fail(w, err)
+			return
+		}
+		dir = filepath.Clean(dir)
+		st := s.T.Settings()
+		st.ShotsDir = dir
+		if strings.EqualFold(dir, s.defaultShotsDir()) {
+			st.ShotsDir = ""
+		}
+		if err := s.DB.SaveSettings(st); err != nil {
+			fail(w, err)
+			return
+		}
+		s.T.SetSettings(s.DB.Settings())
+		err := s.T.Shots.Move(dir)
+		s.T.Emit("settings")
+		if err != nil {
+			fail(w, fmt.Errorf("some screenshots could not be moved: %w", err))
+			return
+		}
+		writeJSON(w, r, map[string]any{"dir": dir})
+
 	default:
 		http.NotFound(w, r)
 	}
@@ -858,6 +900,33 @@ func init() {
 	for _, e := range strings.Fields(".exe .com .bat .cmd .ps1 .psm1 .vbs .vbe .js .jse .wsf .wsh .msi .msp .scr .hta .lnk .url .cpl .pif .reg .jar .appref-ms .application .msc .inf .sys .dll") {
 		blockedExt[e] = true
 	}
+}
+
+func (s *Server) defaultShotsDir() string { return filepath.Join(s.DataDir, "screenshots") }
+
+// checkShotsDir accepts a folder for screenshots: an absolute path that is
+// not the current folder, not inside it or around it, and writable.
+func checkShotsDir(dir, cur string) error {
+	if !filepath.IsAbs(dir) || filepath.VolumeName(dir) == "" {
+		return errors.New("choose a folder on a drive")
+	}
+	dir, cur = strings.ToLower(filepath.Clean(dir)), strings.ToLower(filepath.Clean(cur))
+	sep := string(filepath.Separator)
+	switch {
+	case dir == cur:
+		return errors.New("that is already the screenshot folder")
+	case strings.HasPrefix(dir, cur+sep), strings.HasPrefix(cur, strings.TrimSuffix(dir, sep)+sep):
+		return errors.New("the new folder can't be inside the current one or contain it")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".timestamps-*")
+	if err != nil {
+		return fmt.Errorf("can't write to that folder: %w", err)
+	}
+	f.Close()
+	return os.Remove(f.Name())
 }
 
 func dirSize(dir string) int64 {

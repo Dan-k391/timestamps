@@ -1,5 +1,5 @@
 // Day view: timeline lanes, live updates, tagging and summaries.
-import { h, clear, icon, button, appIcon, kindIcon, siteHost, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
+import { h, clear, icon, button, appIcon, kindIcon, siteHost, wheelScrollsX, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
 import { t } from '../i18n.js';
 import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser, baseDomain } from '../fmt.js';
 import * as api from '../api.js';
@@ -532,6 +532,7 @@ export function mount(el, params) {
     if (!shots.length) return;
     clear(shotsCard);
     const strip = h('div', { class: 'shot-strip' });
+    wheelScrollsX(strip);
     shots.forEach((ts, i) => strip.append(h('button', { class: 'shot', type: 'button', onClick: () => openLightbox(shots, i) }, h('img', { src: api.shotURL(ts, true), loading: 'lazy', alt: '' }), h('span', null, clock(ts)))));
     shotsCard.append(h('div', { class: 'card-head' }, icon('image', 16), h('h3', null, t('Screenshots')), h('span', { class: 'muted' }, shots.length), h('div', { class: 'spacer' }),
       button(t('View all'), { small: true, variant: 'ghost', onClick: () => go('screenshots/' + date) })), strip);

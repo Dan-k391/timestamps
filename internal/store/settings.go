@@ -28,13 +28,14 @@ type Settings struct {
 	ScheduleStart string  `json:"scheduleStart"`
 	ScheduleEnd   string  `json:"scheduleEnd"`
 
-	ShotsOn        bool `json:"shotsOn"`
-	ShotsInterval  int  `json:"shotsInterval"` // minutes
-	ShotsMaxWidth  int  `json:"shotsMaxWidth"`
-	ShotsQuality   int  `json:"shotsQuality"`
-	ShotsKeepDays  int  `json:"shotsKeepDays"`
-	ShotsSkipSame  bool `json:"shotsSkipSame"`
-	ShotsAllScreen bool `json:"shotsAllScreens"`
+	ShotsOn        bool   `json:"shotsOn"`
+	ShotsInterval  int    `json:"shotsInterval"` // minutes
+	ShotsMaxWidth  int    `json:"shotsMaxWidth"`
+	ShotsQuality   int    `json:"shotsQuality"`
+	ShotsKeepDays  int    `json:"shotsKeepDays"`
+	ShotsSkipSame  bool   `json:"shotsSkipSame"`
+	ShotsAllScreen bool   `json:"shotsAllScreens"`
+	ShotsDir       string `json:"shotsDir"` // "" = the screenshots folder in the data folder
 
 	Language       string `json:"language"` // auto | en | zh
 	Theme          string `json:"theme"`    // system | light | dark

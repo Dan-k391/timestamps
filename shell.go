@@ -295,6 +295,18 @@ func (a *App) PickFile(title, filter string) string {
 	return <-res
 }
 
+// PickFolder shows the native folder picker, starting in dir.
+func (a *App) PickFolder(title, dir string) string {
+	res := make(chan string, 1)
+	go func() {
+		runtime.LockOSThread()
+		ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED)
+		defer ole.CoUninitialize()
+		res <- win.PickFolderDialog(a.hwnd, title, dir)
+	}()
+	return <-res
+}
+
 // ApplySettings reacts to settings changes that touch the OS.
 func (a *App) ApplySettings(old, cur store.Settings) {
 	if old.RunAtStartup != cur.RunAtStartup || (cur.RunAtStartup && !win.Autostart("Timestamps")) {

@@ -58,7 +58,11 @@ func main() {
 	extDir := filepath.Join(dataDir, "extension")
 	unpack(extension.FS, extDir)
 
-	t := tracker.New(db, filepath.Join(dataDir, "screenshots"))
+	shotsDir := filepath.Join(dataDir, "screenshots")
+	if settings.ShotsDir != "" {
+		shotsDir = settings.ShotsDir
+	}
+	t := tracker.New(db, shotsDir)
 	var webFS fs.FS = web.FS
 	if dir := os.Getenv("TIMESTAMPS_WEB_DIR"); dir != "" {
 		webFS = os.DirFS(dir) // development: serve the UI from disk
