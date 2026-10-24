@@ -6,8 +6,15 @@ documents and websites you use, detects when you are away, takes periodic
 screenshots, and lets you tag, report on and export your time. Everything
 stays in one local SQLite database.
 
-`build\timestamps.exe` is a single 10 MB executable with no runtime to install
+`timestamps.exe` is a single 10 MB executable with no runtime to install
 (it uses the WebView2 runtime that ships with Windows 10/11).
+
+## Download
+
+Get `Timestamps-<version>-windows-x64.exe` and, optionally, the browser
+extension zips from [Releases](https://github.com/ZJJ-2785/timestamps/releases).
+Nothing to install: run the exe. It isn't code-signed, so Windows SmartScreen
+may ask once (*More info* → *Run anyway*).
 
 ## Features
 
@@ -50,7 +57,7 @@ continues from the tray.
 
 ## Using it
 
-Run `build\timestamps.exe`. The tray icon opens the window (left click) or a
+Run the exe (or `build\timestamps.exe` when built from source). The tray icon opens the window (left click) or a
 menu (right click: stopwatch, screenshot, pause tracking, exit).
 `timestamps.exe --minimized` starts in the tray; *Start with Windows* in
 Settings does that at login.
@@ -61,12 +68,17 @@ Data lives in `%LOCALAPPDATA%\Timestamps` (`timestamps.db`, `screenshots\`,
 ### Browser extension (optional)
 
 Websites are tracked without it. The extension is more precise and can mark
-private windows. It is unpacked to `%LOCALAPPDATA%\Timestamps\extension`.
+private windows. The app unpacks it to `%LOCALAPPDATA%\Timestamps\extension`;
+the same files are in the release zips.
 
 * Chrome / Edge / Brave / Opera / Vivaldi: open `chrome://extensions`, enable
-  Developer mode, *Load unpacked*, pick that folder.
+  Developer mode, *Load unpacked*, pick that folder (or the unzipped
+  `…-extension-chromium.zip`).
 * Firefox: `about:debugging#/runtime/this-firefox` → *Load Temporary Add-on* →
-  `extension\firefox\manifest.json`.
+  `extension\firefox\manifest.json` (or the `…-extension-firefox.zip`). It is
+  not signed by Mozilla, so release Firefox removes it on restart; Firefox
+  Developer Edition/Nightly can keep it with `xpinstall.signatures.required`
+  set to `false`.
 
 It only talks to `127.0.0.1`.
 
