@@ -51,7 +51,8 @@ type Settings struct {
 	BackupDays int `json:"backupDays"` // automatic backup interval, 0 = off
 	BackupKeep int `json:"backupKeep"`
 
-	DayLayout []LayoutBlock `json:"dayLayout"` // order and width of the day view blocks
+	DayLayout       []LayoutBlock `json:"dayLayout"` // order and width of the day view blocks
+	MergeSubdomains bool          `json:"mergeSubdomains"`
 }
 
 // LayoutBlock is one block of the day view board.
@@ -69,7 +70,7 @@ func DefaultSettings() Settings {
 		ScheduleDays: [7]bool{true, true, true, true, true, false, false}, ScheduleStart: "08:00", ScheduleEnd: "18:00",
 		ShotsOn: true, ShotsInterval: 5, ShotsMaxWidth: 1280, ShotsQuality: 60, ShotsKeepDays: 30, ShotsSkipSame: true,
 		Language: "auto", Theme: "system", DurationFormat: "hm", WeekStart: 1, Clock24: true,
-		CloseToTray: true, RecentTags: 10, BackupKeep: 5,
+		CloseToTray: true, RecentTags: 10, BackupKeep: 5, MergeSubdomains: true,
 	}
 }
 

@@ -109,6 +109,8 @@ const zh = {
   "{0} pages": "{0} 个页面",
   "Merge same app": "合并相同应用",
   "Merge same website": "合并相同网站",
+  "Merge subdomains": "合并子域名",
+  "Count t.example.com, www.example.com and example.com as one website.": "将 t.example.com、www.example.com 和 example.com 视为同一个网站。",
   "Activities": "活动列表",
   "Follow timeline": "跟随时间轴",
   "Show only what is visible in the timeline": "只显示时间轴中可见的部分",

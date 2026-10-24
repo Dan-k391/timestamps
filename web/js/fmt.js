@@ -137,6 +137,26 @@ export function shortURL(u) {
 const BROWSER_SUFFIX = /\s+[-—–]\s+(Google Chrome|Microsoft Edge|Brave|Opera|Vivaldi|Chromium|Mozilla Firefox|Firefox|Waterfox|LibreWolf|Floorp|Zen Browser|360安全浏览器|360极速浏览器|QQ浏览器|搜狗高速浏览器|Yandex|Arc|Thorium)(\s+(Beta|Dev|Canary|Nightly|Developer Edition))?$/;
 const MORE_PAGES = /\s+(and \d+ more pages?|和另外\s*\d+\s*个页面|和其他\s*\d+\s*个页面|及其他\s*\d+\s*个页面)(\s+[-—–]\s+.*)?$/;
 
+// Two-label public suffixes and shared hosting domains; kept in sync with
+// multiSuffixes in internal/store/domain.go.
+const BASE_SUFFIXES = new Set(`com.cn net.cn org.cn gov.cn edu.cn ac.cn mil.cn com.hk net.hk org.hk edu.hk gov.hk com.tw net.tw org.tw
+  edu.tw gov.tw com.mo co.uk org.uk ac.uk gov.uk me.uk ltd.uk plc.uk net.uk sch.uk nhs.uk com.au net.au org.au edu.au gov.au co.nz net.nz
+  org.nz ac.nz govt.nz co.jp ne.jp or.jp ac.jp go.jp co.kr ne.kr or.kr ac.kr go.kr com.sg edu.sg gov.sg com.my edu.my gov.my co.id ac.id
+  go.id or.id co.th ac.th go.th in.th com.vn edu.vn gov.vn com.ph edu.ph gov.ph co.in net.in org.in ac.in gov.in com.br net.br org.br
+  gov.br edu.br com.mx org.mx gob.mx edu.mx com.ar gob.ar com.co gov.co co.za org.za ac.za gov.za com.tr edu.tr gov.tr com.ua org.ua
+  com.ru org.ru com.sa edu.sa gov.sa co.il ac.il gov.il com.eg edu.eg gov.eg com.pk edu.pk github.io gitlab.io gitee.io vercel.app
+  netlify.app pages.dev workers.dev web.app firebaseapp.com herokuapp.com appspot.com blogspot.com azurewebsites.net cloudfront.net
+  onrender.com fly.dev repl.co glitch.me surge.sh ngrok.io ngrok-free.app trycloudflare.com`.split(/\s+/));
+
+/** Registrable domain: "t.bilibili.com" -> "bilibili.com", "news.bbc.co.uk" -> "bbc.co.uk". */
+export function baseDomain(host) {
+  const h = (host || '').toLowerCase().replace(/\.$/, '');
+  if (!h.includes('.') || /^[\d.]+$/.test(h) || h.includes(':')) return h;
+  const p = h.split('.');
+  if (p.length <= 2) return h;
+  return BASE_SUFFIXES.has(p.slice(-2).join('.')) ? p.slice(-3).join('.') : p.slice(-2).join('.');
+}
+
 /** Window title without the browser name (profile name still attached). */
 export function stripBrowser(title) {
   return title.replace(/\u200b/g, '').replace(BROWSER_SUFFIX, '').trim();

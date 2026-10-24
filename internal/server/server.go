@@ -343,7 +343,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 			fail(w, err)
 			return
 		}
-		st, err := s.DB.Stats(a, b)
+		st, err := s.DB.Stats(a, b, s.T.Settings().MergeSubdomains)
 		if err != nil {
 			fail(w, err)
 			return
@@ -356,7 +356,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 			fail(w, err)
 			return
 		}
-		d, err := s.DB.Detail(r.URL.Query().Get("kind"), r.URL.Query().Get("key"), qInt(r, "id"), a, b)
+		d, err := s.DB.Detail(r.URL.Query().Get("kind"), r.URL.Query().Get("key"), qInt(r, "id"), a, b, s.T.Settings().MergeSubdomains)
 		if err != nil {
 			fail(w, err)
 			return

@@ -101,36 +101,55 @@ export class Board {
   }
 
   /**
-   * Layout after dropping block id next to target ('left' | 'right') or in
-   * its own row ('above' | 'below').
+   * Layout after dropping block id onto target, iPhone-style reflow: the
+   * block takes the target's place in reading order (and its width, when
+   * allowed). Moving up pushes the target and what follows down; moving down
+   * lets them shift back into the gap. Within one row the two just swap.
+   * Rows whose members changed re-fit to stay full; other rows (including
+   * ones sized by hand) are left alone. target null means "at the end".
    */
-  placed(base, id, target, side) {
-    const rows = toRows(base).map((r) => r.map((x) => ({ ...x })));
+  placed(base, id, target) {
+    const rowsBase = toRows(base);
+    const mates = (rows) => {
+      const m = new Map();
+      for (const r of rows) { const key = r.map((x) => x.id).join(','); for (const x of r) m.set(x.id, key); }
+      return m;
+    };
+    const before = mates(rowsBase);
+    const ri = rowsBase.findIndex((r) => r.some((x) => x.id === id));
+    if (target && rowsBase[ri].some((x) => x.id === target)) {
+      const row = rowsBase[ri].map((x) => ({ ...x }));
+      const [me] = row.splice(row.findIndex((x) => x.id === id), 1);
+      const forward = base.findIndex((x) => x.id === id) < base.findIndex((x) => x.id === target);
+      row.splice(row.findIndex((x) => x.id === target) + (forward ? 1 : 0), 0, me);
+      rowsBase[ri] = row;
+      return fromRows(rowsBase);
+    }
     const me = { id, w: base.find((x) => x.id === id).w };
-    let ri = rows.findIndex((r) => r.some((x) => x.id === id));
-    // Moving within its own row just reorders; widths stay as they are.
-    if ((side === 'left' || side === 'right') && rows[ri].some((x) => x.id === target)) {
-      const row = rows[ri].filter((x) => x.id !== id);
-      row.splice(row.findIndex((x) => x.id === target) + (side === 'right' ? 1 : 0), 0, me);
-      rows[ri] = row;
-      return fromRows(rows);
+    const flat = base.filter((x) => x.id !== id).map((x) => ({ id: x.id, w: x.w }));
+    if (target) {
+      const ti = base.findIndex((x) => x.id === target);
+      const tw = SPAN[base[ti].w];
+      const allowed = this.allowed(id);
+      me.w = W_OF[allowed.includes(tw) ? tw : allowed.find((x) => x >= tw) || allowed[allowed.length - 1]];
+      flat.splice(ti, 0, me); // before the target when moving up, after it when moving down
+    } else {
+      flat.push(me);
     }
-    // Take the block out; the row it leaves re-fits to stay full.
-    rows[ri] = rows[ri].filter((x) => x.id !== id);
-    if (!rows[ri].length) rows.splice(ri, 1);
-    else rows[ri] = this.fit(rows[ri], new Set()) || rows[ri];
-    const ti = rows.findIndex((r) => r.some((x) => x.id === target));
-    if (ti < 0) { rows.push([{ id, w: 'full' }]); return fromRows(rows); }
-    if (side === 'left' || side === 'right') {
-      const row = [...rows[ti]];
-      const k = row.findIndex((x) => x.id === target) + (side === 'right' ? 1 : 0);
-      row.splice(k, 0, me);
-      const fitted = this.fit(row, new Set(), new Set([id]));
-      if (fitted) { rows[ti] = fitted; return fromRows(rows); }
-      side = side === 'left' ? 'above' : 'below';
+    const rows = [];
+    let used = 6;
+    for (const it of flat) {
+      const span = SPAN[it.w];
+      if (used + span > 6) { rows.push([]); used = 0; }
+      rows[rows.length - 1].push(it);
+      used += span;
     }
-    rows.splice(side === 'above' ? ti : ti + 1, 0, [{ id, w: 'full' }]);
-    return fromRows(rows);
+    const after = mates(rows);
+    return fromRows(rows.map((r) => {
+      if (!r.some((x) => before.get(x.id) !== after.get(x.id))) return r;
+      const lock = r.length > 1 && r.some((x) => x.id === id) ? new Set([id]) : new Set();
+      return this.fit(r, lock) || this.fit(r, new Set()) || r;
+    }));
   }
 
   /** Layout after manually setting a block's width; its row mates adapt. */
@@ -151,12 +170,19 @@ export class Board {
 
   apply(layout, holder) {
     this.layout = layout;
-    for (const it of layout) {
+    const els = layout.map((it) => {
       const el = holder && holder.id === it.id ? holder.el : this.wraps.get(it.id);
-      el.style.gridColumn = `${it.br ? '1 / ' : ''}span ${SPAN[it.w]}`;
+      const col = `${it.br ? '1 / ' : ''}span ${SPAN[it.w]}`;
+      if (el.style.gridColumn !== col) el.style.gridColumn = col;
       el.dataset.w = it.w;
-      this.host.append(el);
-    }
+      return el;
+    });
+    // Only move elements that are out of place: moving big blocks around
+    // the DOM is what makes dragging stutter.
+    els.forEach((el, i) => {
+      const at = this.host.children[i];
+      if (at !== el) this.host.insertBefore(el, at || null);
+    });
     if (!holder) for (const it of layout) this.renderTools(it.id);
   }
 
@@ -240,46 +266,38 @@ export class Board {
     follow();
     setTimeout(() => { wrap.style.transition = 'none'; }, 100);
 
-    let decision = null, lastChange = 0, lastX = px, lastY = py;
+    let decision; // undefined: not moved yet; { target } once over a block
+    // A new target is only taken once the pointer has moved a deliberate
+    // distance (in page coordinates) since the last change, so blocks that
+    // slide under a resting pointer don't make the layout flip back and forth.
+    let lastChange = 0, lastX = px, lastY = py, lastScroll = 0;
     let rects = this.rectsExcept(wrap);
     const sc = this.host.closest('.main');
     const onScroll = () => { rects = this.rectsExcept(wrap); };
     sc && sc.addEventListener('scroll', onScroll);
 
     const decide = () => {
-      let hit = null;
       for (const [oid, r] of rects) {
-        if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) { hit = { id: oid, r }; break; }
+        if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) return { target: oid };
       }
-      if (!hit) {
-        // Below everything: last row; above everything: first row.
-        const all = [...rects.values()];
-        if (!all.length) return null;
-        if (py > Math.max(...all.map((r) => r.bottom))) return { target: this.layout.filter((x) => x.id !== id).slice(-1)[0].id, side: 'below' };
-        if (py < Math.min(...all.map((r) => r.top))) return { target: this.layout.find((x) => x.id !== id).id, side: 'above' };
-        return decision; // over the placeholder or a gap: keep the current choice
-      }
-      const { r } = hit;
-      const wide = r.width > this.host.clientWidth * 0.6;
-      const fx = (px - r.left) / r.width, fy = (py - r.top) / r.height;
-      let side;
-      if (wide) side = fx < 0.22 ? 'left' : fx > 0.78 ? 'right' : fy < 0.5 ? 'above' : 'below';
-      else side = fy < 0.18 ? 'above' : fy > 0.82 ? 'below' : fx < 0.5 ? 'left' : 'right';
-      return { target: hit.id, side };
+      const all = [...rects.values()];
+      if (all.length && py > Math.max(...all.map((r) => r.bottom))) return { target: null };
+      return decision; // over its own placeholder or a gap: keep the choice
     };
 
     const update = () => {
       const d = decide();
-      if (!d || (decision && d.target === decision.target && d.side === decision.side)) return;
+      if (!d || (decision && d.target === decision.target)) return;
       const now = performance.now();
-      if (now - lastChange < 140 || Math.hypot(px - lastX, py - lastY) < 8) return;
+      const scroll = sc ? sc.scrollTop : 0;
+      if (decision !== undefined && (now - lastChange < 120 || Math.hypot(px - lastX, py + scroll - (lastY + lastScroll)) < 24)) return;
       decision = d;
       lastChange = now;
       lastX = px;
       lastY = py;
-      const next = this.placed(base, id, d.target, d.side);
-      const mine = next.find((x) => x.id === id);
-      holder.dataset.w = mine.w;
+      lastScroll = scroll;
+      const next = this.placed(base, id, d.target);
+      holder.dataset.w = next.find((x) => x.id === id).w;
       this.animate(() => this.apply(next, { id, el: holder }), wrap);
       rects = this.rectsExcept(wrap);
     };
@@ -288,7 +306,10 @@ export class Board {
     const autoScroll = () => {
       if (!sc) return;
       const r = sc.getBoundingClientRect();
-      const v = py < r.top + 60 ? -14 : py > r.bottom - 60 ? 14 : 0;
+      // Only once the block has really been dragged: grabbing a block near
+      // the top of the window must not start scrolling by itself.
+      const dragged = Math.hypot(px - sx, py - sy) > 30;
+      const v = !dragged ? 0 : py < r.top + 60 ? -14 : py > r.bottom - 60 ? 14 : 0;
       if (v) { sc.scrollTop += v; update(); }
       scrollTimer = setTimeout(autoScroll, 16);
     };
@@ -307,7 +328,7 @@ export class Board {
       sc && sc.removeEventListener('scroll', onScroll);
       clearTimeout(scrollTimer);
       document.body.classList.remove('board-dragging');
-      const final = decision ? this.placed(base, id, decision.target, decision.side) : base;
+      const final = decision ? this.placed(base, id, decision.target) : base;
       // Glide into the placeholder, then put the block back in the grid.
       const hr = holder.getBoundingClientRect();
       wrap.style.transition = 'transform 160ms cubic-bezier(.2, .8, .2, 1)';

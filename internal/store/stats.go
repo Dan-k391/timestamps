@@ -2,6 +2,7 @@ package store
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -41,8 +42,9 @@ type Stats struct {
 	Tags   []Total      `json:"tags"`
 }
 
-// Stats aggregates every timeline over [a, b).
-func (db *DB) Stats(a, b int64) (*Stats, error) {
+// Stats aggregates every timeline over [a, b). With mergeSubdomains,
+// websites are grouped by registrable domain (t.a.com + c.a.com -> a.com).
+func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 	st := &Stats{From: a, To: b, Apps: []Total{}, Sites: []Total{}, Files: []Total{}, Tags: []Total{}}
 	bounds := dayStarts(a, b)
 	st.Days = make([]DayStat, len(bounds)-1)
@@ -113,17 +115,25 @@ func (db *DB) Stats(a, b int64) (*Stats, error) {
 	// Websites by domain.
 	rows, err = db.sql.Query(`SELECT d.grp, SUM(g.t) t FROM
 		(SELECT doc, SUM(MIN(e, ?) - MAX(s, ?)) t FROM doc_seg WHERE s >= ? AND s < ? AND e > ? GROUP BY doc) g
-		JOIN doc d ON d.id = g.doc WHERE d.kind = 2 GROUP BY d.grp ORDER BY t DESC LIMIT 300`, b, a, db.lowS(TDoc, a), b, a)
+		JOIN doc d ON d.id = g.doc WHERE d.kind = 2 GROUP BY d.grp ORDER BY t DESC LIMIT 1000`, b, a, db.lowS(TDoc, a), b, a)
 	if err != nil {
 		return nil, err
 	}
+	sites := map[string]int64{}
 	for rows.Next() {
-		var t Total
-		rows.Scan(&t.Key, &t.Secs)
-		t.Name, t.Kind, t.Color = t.Key, KindWeb, ColorFor(t.Key)
-		st.Sites = append(st.Sites, t)
+		var key string
+		var secs int64
+		rows.Scan(&key, &secs)
+		if mergeSubdomains {
+			key = BaseDomain(key)
+		}
+		sites[key] += secs
 	}
 	rows.Close()
+	for k, v := range sites {
+		st.Sites = append(st.Sites, Total{Key: k, Name: k, Kind: KindWeb, Color: ColorFor(k), Secs: v})
+	}
+	sortTotals(st.Sites)
 
 	// Files by full path.
 	rows, err = db.sql.Query(`SELECT d.id, d.key, d.name, g.t FROM
@@ -196,7 +206,7 @@ type Detail struct {
 
 // Detail breaks one entity down by day and by sub-item (window titles for
 // apps, URLs for sites).
-func (db *DB) Detail(kind string, key string, id int64, a, b int64) (*Detail, error) {
+func (db *DB) Detail(kind string, key string, id int64, a, b int64, mergeSubdomains bool) (*Detail, error) {
 	bounds := dayStarts(a, b)
 	d := &Detail{Days: make([]DayStat, len(bounds)-1), Items: []Total{}}
 	for i := range d.Days {
@@ -210,9 +220,13 @@ func (db *DB) Detail(kind string, key string, id int64, a, b int64) (*Detail, er
 			WHERE x.app = ? AND x.s >= ? AND x.s < ? AND x.e > ?`
 		args = []any{id, db.lowS(TApp, a), b, a}
 	case "site":
+		like := "\x00" // matches nothing unless subdomains are merged
+		if mergeSubdomains {
+			like = "%." + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(key)
+		}
 		q = `SELECT x.s, x.e, d.key, d.id FROM doc_seg x JOIN doc d ON d.id = x.doc
-			WHERE d.kind = 2 AND d.grp = ? AND x.s >= ? AND x.s < ? AND x.e > ?`
-		args = []any{key, db.lowS(TDoc, a), b, a}
+			WHERE d.kind = 2 AND (d.grp = ? OR d.grp LIKE ? ESCAPE '\') AND x.s >= ? AND x.s < ? AND x.e > ?`
+		args = []any{key, like, db.lowS(TDoc, a), b, a}
 	case "file":
 		q = `SELECT x.s, x.e, a.name, x.app FROM doc_seg x LEFT JOIN app a ON a.id = x.app
 			WHERE x.doc = ? AND x.s >= ? AND x.s < ? AND x.e > ?`

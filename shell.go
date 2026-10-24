@@ -258,7 +258,7 @@ func (a *App) tipLoop() {
 		day := time.Now().Format("2006-01-02")
 		tip := "Timestamps"
 		if s, e, err := store.DayRange(day); err == nil {
-			if st, err := a.db.Stats(s, e); err == nil {
+			if st, err := a.db.Stats(s, e, false); err == nil {
 				tip += fmt.Sprintf(" · %s %dh %02dm", a.Text("activeToday"), st.Active/3600, st.Active/60%60)
 			}
 		}

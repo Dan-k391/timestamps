@@ -22,7 +22,7 @@ const COLUMNS = {
     { key: 'app', label: 'Application', grow: 1.2, get: (s) => s.app.name },
   ],
   docs: [
-    { key: 'name', label: 'Name', grow: 2.2, get: (s) => (s.doc.kind === 2 ? (s.segs ? s.doc.grp : pageName(s)) : baseName(s.doc.key)) },
+    { key: 'name', label: 'Name', grow: 2.2, get: (s) => (s.doc.kind === 2 ? (s.segs ? s.site || s.doc.grp : pageName(s)) : baseName(s.doc.key)) },
     { key: 'where', label: 'Location', grow: 2, get: (s) => (s.doc.kind === 2 ? (s.segs ? t('{0} pages', s.pages) : shortURL(s.doc.key)) : dirName(s.doc.key) || s.doc.key) },
   ],
   tags: [
@@ -40,7 +40,7 @@ const TIME_COLS = [
 // Key that decides which consecutive rows merge.
 const MERGE_KEY = {
   apps: (s) => 'a' + s.app.id,
-  docs: (s) => (s.doc.kind === 2 ? 'w' + s.doc.grp : 'f' + s.doc.key),
+  docs: (s) => (s.doc.kind === 2 ? 'w' + (s.site || s.doc.grp) : 'f' + s.doc.key),
 };
 
 function loadPref(k, def) {
@@ -266,7 +266,7 @@ export class ActivityList {
   lead(s) {
     switch (this.tab) {
       case 'apps': return appIcon(s.app, 18);
-      case 'docs': return kindIcon(s.doc.kind, s.doc.grp || s.doc.key, 18);
+      case 'docs': return kindIcon(s.doc.kind, s.site || s.doc.grp || s.doc.key, 18);
       case 'tags': return h('span', { class: 'dot lg', style: { background: s.color } });
       default: return h('span', { class: 'dot lg', style: { background: s.state ? 'var(--active)' : 'var(--away-strong)' } });
     }

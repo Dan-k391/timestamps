@@ -46,7 +46,7 @@ export class Timeline {
     host.append(this.wrap, this.mini);
     this.labelW = 132;
     this.padR = 16;
-    this.axisH = 34;
+    this.axisH = 36;
     this.gap = 8;
     this.lanes = [];
     this.from = 0;
@@ -182,7 +182,7 @@ export class Timeline {
   /** Scrolls (without zooming) so [s, e) is visible. */
   reveal(s, e) {
     const [vs, ve] = this.view;
-    if (s >= vs && e <= ve) return;
+    if (e > vs && s < ve) return; // already (partly) visible: don't move under the user
     const span = ve - vs;
     if (e - s > span) { this.zoomTo(s, e); return; }
     const c = (s + e) / 2;
@@ -509,7 +509,7 @@ export class Timeline {
     let top = top0;
     for (const lane of this.lanes) {
       ctx.fillStyle = C.lane;
-      roundRect(ctx, L, top, pw, lane.h, 8);
+      roundRect(ctx, L, top, pw, lane.h, 4);
       ctx.fill();
       top += lane.h + this.gap;
     }
@@ -562,7 +562,7 @@ export class Timeline {
       const x0 = Math.max(L, this.x(seg.s)), x1 = Math.min(L + pw, this.x(seg.e));
       ctx.strokeStyle = C.text;
       ctx.lineWidth = width;
-      roundRect(ctx, x0 - 0.5, lt + 2.5, Math.max(3, x1 - x0 + 1), lane.h - 5, 5);
+      roundRect(ctx, x0 - 0.5, lt + 2.5, Math.max(3, x1 - x0 + 1), lane.h - 5, 2.5);
       ctx.stroke();
     }
     ctx.lineWidth = 1;
@@ -618,12 +618,12 @@ export class Timeline {
   drawLane(ctx, lane, top, C) {
     const [vs, ve] = this.view;
     const segs = lane.segs;
-    const pad = lane.style === 'usage' ? 4 : 5;
+    const pad = lane.style === 'usage' ? 5 : 6;
     const y = top + pad, hh = lane.h - pad * 2;
     const filter = this.filter, hl = this.highlight;
     const L = this.labelW, R = this.labelW + this.plotW;
     const pat = lane.style === 'usage' ? this.awayPattern(ctx, C) : null;
-    ctx.font = `600 12px ${FONT}`;
+    ctx.font = `600 13px ${FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
 
@@ -640,13 +640,13 @@ export class Timeline {
       ctx.globalAlpha = run.dim ? 0.15 : lane.style === 'auto' ? 0.5 : 1;
       if (pat && run.seg.state === 0) ctx.fillStyle = pat;
       else ctx.fillStyle = run.seg.color;
-      roundRect(ctx, x0 + g, y, w - 2 * g, hh, Math.min(6, w / 3));
+      roundRect(ctx, x0 + g, y, w - 2 * g, hh, Math.min(2.5, w / 3));
       ctx.fill();
       if (lane.style === 'auto' && w > 4) {
         ctx.globalAlpha = run.dim ? 0.2 : 0.95;
         ctx.strokeStyle = run.seg.color;
         ctx.setLineDash([4, 3]);
-        roundRect(ctx, x0 + g + 0.5, y + 0.5, w - 2 * g - 1, hh - 1, 5);
+        roundRect(ctx, x0 + g + 0.5, y + 0.5, w - 2 * g - 1, hh - 1, 2);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -656,7 +656,7 @@ export class Timeline {
         let tx = vx0;
         const ic = run.seg.icon ? this.image(run.seg.icon) : null;
         if (ic && vx1 - vx0 > 26) {
-          const s = 16;
+          const s = lane.h >= 56 ? 20 : 16;
           ctx.save();
           ctx.shadowColor = 'rgba(0,0,0,.25)';
           ctx.shadowBlur = 2;
@@ -675,7 +675,7 @@ export class Timeline {
         const label = this.fitText(ctx, run.seg.label, vx1 - vx0);
         ctx.fillStyle = '#fff';
         ctx.fillText(label, vx0, top + lane.h / 2 + 0.5);
-        ctx.font = `600 12px ${FONT}`;
+        ctx.font = `600 13px ${FONT}`;
       }
       ctx.globalAlpha = 1;
       run = null;
@@ -716,14 +716,14 @@ export class Timeline {
         const x0 = Math.round(x - tw / 2), y0 = top + 4;
         const img = sg.thumb ? this.image(sg.thumb) : null;
         ctx.save();
-        roundRect(ctx, x0, y0, tw, th, 5);
+        roundRect(ctx, x0, y0, tw, th, 3);
         ctx.clip();
         if (img) ctx.drawImage(img, x0, y0, tw, th);
         else { ctx.fillStyle = C.grid; ctx.fillRect(x0, y0, tw, th); }
         ctx.restore();
         ctx.strokeStyle = sg === hov ? C.accent : C.surface;
         ctx.lineWidth = sg === hov ? 2 : 1.5;
-        roundRect(ctx, x0, y0, tw, th, 5);
+        roundRect(ctx, x0, y0, tw, th, 3);
         ctx.stroke();
         ctx.lineWidth = 1;
         lastRight = x0 + tw;
@@ -745,10 +745,10 @@ export class Timeline {
     const L = this.labelW, pw = this.plotW;
     const ty = 6, th = 22;
     ctx.fillStyle = C.lane;
-    roundRect(ctx, L, ty, pw, th, 7);
+    roundRect(ctx, L, ty, pw, th, 4);
     ctx.fill();
     ctx.save();
-    roundRect(ctx, L, ty, pw, th, 7);
+    roundRect(ctx, L, ty, pw, th, 4);
     ctx.clip();
     const usage = this.lanes.find((l) => l.id === 'usage');
     if (usage) {
@@ -773,11 +773,11 @@ export class Timeline {
     // Viewport window with grips.
     const v0 = this.mx(this.view[0]), v1 = this.mx(this.view[1]);
     ctx.fillStyle = C.sel;
-    roundRect(ctx, v0, ty - 3, Math.max(6, v1 - v0), th + 6, 7);
+    roundRect(ctx, v0, ty - 3, Math.max(6, v1 - v0), th + 6, 4);
     ctx.fill();
     ctx.strokeStyle = C.accent;
     ctx.lineWidth = 2;
-    roundRect(ctx, v0, ty - 3, Math.max(6, v1 - v0), th + 6, 7);
+    roundRect(ctx, v0, ty - 3, Math.max(6, v1 - v0), th + 6, 4);
     ctx.stroke();
     ctx.fillStyle = C.accent;
     for (const x of [v0, v1]) { roundRect(ctx, x - 2.5, ty + th / 2 - 6, 5, 12, 2.5); ctx.fill(); }

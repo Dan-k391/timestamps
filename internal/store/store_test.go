@@ -52,7 +52,7 @@ func TestTruncateFromAndStats(t *testing.T) {
 	// Idle detected: everything after s+1800 becomes away.
 	db.TruncateFrom(s + 1800)
 	db.BeginUsage(s+1800, s+7200, Away)
-	st, err := db.Stats(day.Unix(), day.AddDate(0, 0, 1).Unix())
+	st, err := db.Stats(day.Unix(), day.AddDate(0, 0, 1).Unix(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +117,25 @@ func TestUsageState(t *testing.T) {
 		st, keep := usageState(key)
 		if keep != (want[1] == 1) || (keep && st != want[0]) {
 			t.Errorf("usageState(%q) = %d, %v", key, st, keep)
+		}
+	}
+}
+
+func TestBaseDomain(t *testing.T) {
+	for in, want := range map[string]string{
+		"t.bilibili.com":     "bilibili.com",
+		"www.bilibili.com":   "bilibili.com",
+		"bilibili.com":       "bilibili.com",
+		"news.bbc.co.uk":     "bbc.co.uk",
+		"www.taobao.com.cn":  "taobao.com.cn",
+		"dan-k391.github.io": "dan-k391.github.io",
+		"localhost":          "localhost",
+		"192.168.1.10":       "192.168.1.10",
+		"a.b.c.example.org":  "example.org",
+		"mail.google.com":    "google.com",
+	} {
+		if got := BaseDomain(in); got != want {
+			t.Errorf("BaseDomain(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

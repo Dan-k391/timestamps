@@ -1,7 +1,7 @@
 // Day view: timeline lanes, live updates, tagging and summaries.
 import { h, clear, icon, button, appIcon, kindIcon, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser } from '../fmt.js';
+import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser, baseDomain } from '../fmt.js';
 import * as api from '../api.js';
 import { Timeline } from '../timeline.js';
 import { ActivityList } from '../activitylist.js';
@@ -183,6 +183,7 @@ export function mount(el, params) {
       return { s, e, color: c, ink: inkFor(c), label: app.name, group: 'a' + a, icon: app.icon ? api.iconURL(a) : null, search: app.name + ' ' + title, kind: 'app', app, title };
     });
     const pages = pageTitles(apps);
+    const mergeSub = !state.settings || state.settings.mergeSubdomains !== false;
     let ai = 0;
     const docs = d.docs.map(([s, e, id, a]) => {
       const doc = d.docMap[id] || { kind: 1, key: '?', name: '?', grp: '?' };
@@ -197,19 +198,21 @@ export function mount(el, params) {
         if (!page && doc.name && doc.name !== doc.key) page = doc.name;
       }
       const c = hashColor(doc.grp || doc.key);
-      return { s, e, color: c, ink: inkFor(c), label: doc.kind === 2 ? doc.grp : doc.name, group: doc.kind === 2 ? 'w' + doc.grp : 'f' + doc.key, search: doc.key + ' ' + doc.name + ' ' + page, kind: 'doc', doc, page, appId: a };
+      const site = doc.kind === 2 ? (mergeSub ? baseDomain(doc.grp) : doc.grp) : '';
+      const sc = doc.kind === 2 ? hashColor(site) : c;
+      return { s, e, color: sc, ink: inkFor(sc), label: doc.kind === 2 ? site : doc.name, group: doc.kind === 2 ? 'w' + site : 'f' + doc.key, search: doc.key + ' ' + doc.name + ' ' + page, kind: 'doc', doc, page, site, appId: a };
     });
     lanes = [
-      { id: 'tags', label: t('Tags'), icon: 'tag', h: 40, segs: tagSegs, style: 'tags' },
+      { id: 'tags', label: t('Tags'), icon: 'tag', h: 50, segs: tagSegs, style: 'tags' },
     ];
     if (d.auto && d.auto.length) {
-      lanes.push({ id: 'auto', label: t('Autotags'), icon: 'sparkles', h: 30, style: 'auto', segs: d.auto.map((a) => { const c = hashColor(a.tags); return { s: a.s, e: a.e, color: c, ink: inkFor(c), label: a.tags, group: 'x' + a.tags, kind: 'auto', auto: a }; }) });
+      lanes.push({ id: 'auto', label: t('Autotags'), icon: 'sparkles', h: 36, style: 'auto', segs: d.auto.map((a) => { const c = hashColor(a.tags); return { s: a.s, e: a.e, color: c, ink: inkFor(c), label: a.tags, group: 'x' + a.tags, kind: 'auto', auto: a }; }) });
     }
     lanes.push(
-      { id: 'usage', label: t('Computer'), icon: 'monitor', h: 28, segs: usage, style: 'usage' },
-      { id: 'apps', label: t('Applications'), icon: 'app', h: 48, segs: apps, style: 'bar' },
-      { id: 'docs', label: t('Documents'), icon: 'file', h: 40, segs: docs, style: 'bar' });
-    if (d.shots.length) lanes.push({ id: 'shots', label: t('Screenshots'), icon: 'image', h: 64, style: 'shots', segs: d.shots.map((ts) => ({ s: ts, e: ts + 1, kind: 'shot', ts, thumb: api.shotURL(ts, true) })) });
+      { id: 'usage', label: t('Computer'), icon: 'monitor', h: 34, segs: usage, style: 'usage' },
+      { id: 'apps', label: t('Applications'), icon: 'app', h: 62, segs: apps, style: 'bar' },
+      { id: 'docs', label: t('Documents'), icon: 'file', h: 50, segs: docs, style: 'bar' });
+    if (d.shots.length) lanes.push({ id: 'shots', label: t('Screenshots'), icon: 'image', h: 84, style: 'shots', segs: d.shots.map((ts) => ({ s: ts, e: ts + 1, kind: 'shot', ts, thumb: api.shotURL(ts, true) })) });
   }
 
   // Returns seg -> cleaned page title for browser windows. A trailing
@@ -342,7 +345,17 @@ export function mount(el, params) {
     const w = selBar.offsetWidth || 360;
     const x = tlHost.offsetLeft + (x0 + x1) / 2;
     selBar.style.left = Math.max(8, Math.min(tlCard.clientWidth - w - 8, x - w / 2)) + 'px';
+    // Once the timeline scrolls up out of view the bar stays at the top of
+    // the window, so the selection can still be tagged from further down.
+    const mr = scroller ? scroller.getBoundingClientRect() : { top: 0 };
+    const cr = tlCard.getBoundingClientRect();
+    const pinned = cr.top < mr.top;
+    selBar.classList.toggle('pinned', pinned);
+    selBar.style.top = pinned ? mr.top - cr.top + 10 + 'px' : '';
   }
+  const scroller = el.closest('.main');
+  const onScroll = () => positionSelBar();
+  scroller && scroller.addEventListener('scroll', onScroll, { passive: true });
 
   // ---- summaries ----
   function rangeNow() {
@@ -367,8 +380,8 @@ export function mount(el, params) {
       if (!d) continue;
       const doc = sg.doc;
       if (doc.kind === 2) {
-        let s = sites.get(doc.grp);
-        if (!s) sites.set(doc.grp, (s = { grp: doc.grp, secs: 0, pages: new Map() }));
+        let s = sites.get(sg.site);
+        if (!s) sites.set(sg.site, (s = { grp: sg.site, secs: 0, pages: new Map() }));
         s.secs += d;
         const p = s.pages.get(doc.key) || { doc, secs: 0, title: sg.page };
         p.secs += d;
@@ -414,8 +427,19 @@ export function mount(el, params) {
     };
   }
 
+  // Rebuilding a panel (e.g. expanding a row) must not jump its list back
+  // to the top; switching the Websites/Files tab does start at the top.
+  let shownDocTab = docTab;
   function renderSummaries() {
     if (!data) return;
+    const scrollOf = (card) => { const l = card.querySelector('.list'); return l ? l.scrollTop : 0; };
+    const keep = [[appsCard, scrollOf(appsCard)], [docsCard, shownDocTab === docTab ? scrollOf(docsCard) : 0], [tagsCard, scrollOf(tagsCard)]];
+    shownDocTab = docTab;
+    renderSummaryCards();
+    for (const [card, top] of keep) { const l = card.querySelector('.list'); if (l) l.scrollTop = top; }
+  }
+
+  function renderSummaryCards() {
     const c = collect();
     // Applications
     clear(appsCard);
@@ -451,7 +475,7 @@ export function mount(el, params) {
       dl.append(...listRows(c.sites.map((s) => {
         const key = 'site:' + s.grp;
         const open = expanded.has(key);
-        const row = h('div', { class: 'row' + (open ? ' open' : ''), ...hoverHighlight((sg) => sg.kind === 'doc' ? sg.doc.kind === 2 && sg.doc.grp === s.grp : null) },
+        const row = h('div', { class: 'row' + (open ? ' open' : ''), ...hoverHighlight((sg) => sg.kind === 'doc' ? sg.doc.kind === 2 && sg.site === s.grp : null) },
           h('button', { class: 'row-main', type: 'button', onClick: () => { open ? expanded.delete(key) : expanded.add(key); renderSummaries(); } },
             kindIcon(2, s.grp, 18), h('span', { class: 'row-name' }, s.grp), bar(s.secs, smax, hashColor(s.grp)), h('span', { class: 'row-dur' }, dur(s.secs))));
         if (open) {
@@ -657,6 +681,7 @@ export function mount(el, params) {
     theme() { if (data) { buildLanes(); tl.setData({ from: data.from, to: data.to, lanes, now: tl.now }); list.setLanes(lanes, data.from, data.to); } },
     destroy() {
       document.removeEventListener('keydown', onKey);
+      scroller && scroller.removeEventListener('scroll', onScroll);
       clearInterval(ticker);
       clearInterval(kpiTicker);
       tl.destroy();
