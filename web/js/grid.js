@@ -4,16 +4,19 @@
 // short list. A row with a fit-to-content block (the timeline) takes that
 // block's height.
 //
-// A block is picked up by pressing on any empty part of it. Dropped on the
-// middle of another block it takes that block's place and width, and the
-// other block moves down into a full-width row of its own (in the same row
-// the two swap). Dropped on the left or right edge of a block it joins that
-// row beside it (the row's blocks share the width again, the moved one
-// keeping its width when it can); near the top or bottom edge of a row it
-// gets a row of its own there. The row it left closes up to full width.
-// The border between two blocks of a row moves both, the bottom border sets
-// the row's height.
+// A block is picked up by pressing on any empty part of it. While it is
+// dragged the layout stays still and a marker shows where it will go.
+// Dropped on the middle of another block it takes that block's place and
+// width, and the other block moves down into a full-width row of its own (in
+// the same row the two swap places, keeping their widths). Dropped on the
+// left or right part (30%) of a block it goes beside it in that row (the
+// row's blocks share the width again, the moved one keeping its width when it
+// can); near the top or bottom edge of a row, or between rows, it gets a row
+// of its own there. The row it left closes up to full width. The border
+// between two blocks of a row moves both, the bottom border sets the row's
+// height.
 import { h } from './ui.js';
+import { t } from './i18n.js';
 
 export const COLS = 12;
 const ROW = 30; // px per height unit
@@ -21,7 +24,6 @@ const GAP = 14; // px between blocks
 const NARROW = 860; // below this width blocks simply stack
 const HEIGHTS = [6, 8, 10, 13, 16, 20]; // row heights, in units
 const COMBOS = { 1: [[12]], 2: [[6, 6], [8, 4], [4, 8]], 3: [[4, 4, 4]] };
-const EDGE = 48; // px at a row's top/bottom edge that make a new row
 
 // Pressing on these never starts a drag: they have their own interaction.
 const NO_DRAG = 'button, a, input, select, textarea, label, [contenteditable], .row, .sub-row, .al-row, .al-head, .al-bulk, ' +
@@ -102,7 +104,8 @@ export class Board {
     this.dragId = null;
     host.classList.add('grid');
     this.holder = h('div', { class: 'gi-holder', hidden: true });
-    host.append(this.holder);
+    this.marker = h('div', { class: 'gi-drop', hidden: true }, h('span', { class: 'gi-drop-label' }));
+    host.append(this.holder, this.marker);
     for (const b of blocks) {
       const el = h('div', { class: 'gi' + (b.autoHeight ? ' auto' : ''), dataset: { id: b.id } }, b.el);
       const edges = { e: h('div', { class: 'gi-edge e', hidden: true }), s: h('div', { class: 'gi-edge s', hidden: true }) };
@@ -273,6 +276,25 @@ export class Board {
     this.host.style.height = g.height + 'px';
   }
 
+  /** Shows where a drop goes: a bar between blocks or rows, or a block
+   *  highlighted to be replaced; null hides it. */
+  showMark(m) {
+    const mk = this.marker;
+    mk.hidden = !m;
+    if (!m) return;
+    mk.className = 'gi-drop gi-drop-' + m.kind;
+    mk.style.transform = `translate(${m.left}px, ${m.top}px)`;
+    mk.style.width = m.width + 'px';
+    mk.style.height = m.height + 'px';
+    // A label on a bar at the left or right edge goes inside the board.
+    const label = mk.firstChild;
+    label.textContent = m.label;
+    const edge = m.width < 20 && (m.left < 80 ? 'l' : m.left > this.host.clientWidth - 80 ? 'r' : '');
+    label.style.left = edge === 'l' ? '12px' : edge === 'r' ? 'auto' : '';
+    label.style.right = edge === 'r' ? '12px' : '';
+    label.style.transform = edge ? 'translateY(-50%)' : '';
+  }
+
   // ---- dragging ---------------------------------------------------------
 
   /** A press on an empty part of a block becomes a drag once it moves. */
@@ -308,8 +330,6 @@ export class Board {
     // Where it goes (rows and indexes in `base`): a new row before row `at`;
     // into row `row` before block `index` (join); or in place of that block
     // (replace), which then gets a row of its own just below.
-    let target = srcRow >= 0 ? { type: 'join', row: ri, index: srcIdx } : { type: 'new', at: ri };
-    const same = (a, b) => a.type === b.type && a.row === b.row && a.index === b.index && a.at === b.at;
     const fitted = (r, items) => {
       const fit = fitRow(items, this.allowed);
       if (!fit) return false;
@@ -335,11 +355,10 @@ export class Board {
       // Replace: it takes the other block's place and width.
       const other = r.items[t.index];
       if (t.row === srcRow) {
-        // Same row: the two swap places (and widths).
+        // Same row: the two swap places, each keeping its width.
         const items = src.items.map((x) => ({ ...x }));
         const oi = items.findIndex((x) => x.id === other.id);
-        items[oi] = { id, w: other.w };
-        items[srcIdx] = { id: other.id, w: me.w };
+        [items[oi], items[srcIdx]] = [items[srcIdx], items[oi]];
         return fitted(r, items) ? this.tidy(out) : null;
       }
       const items = r.items.map((x) => ({ ...x }));
@@ -349,67 +368,76 @@ export class Board {
       return this.tidy(out);
     };
     const rowOf = (bid) => base.findIndex((r) => r.items.some((x) => x.id === bid));
-    // The place under the pointer (host coordinates).
-    const targetAt = (lx, ly) => {
-      const g = this.geo;
-      if (!g.rows.length || ly < g.rows[0].top - GAP / 2) return { type: 'new', at: 0 };
-      let p = 0;
-      while (p + 1 < g.rows.length && ly >= g.rows[p + 1].top - GAP / 2) p++;
-      const r = g.rows[p];
-      if (p === g.rows.length - 1 && ly > r.bottom + GAP / 2) return { type: 'new', at: base.length };
-      const others = r.items.filter((x) => x.id !== id);
-      if (!others.length) return target; // over the new row being shown
-      const over = r.items.find((x) => lx >= x.left - GAP / 2 && lx < x.left + x.width + GAP / 2) ||
-        (lx < r.items[0].left ? r.items[0] : r.items[r.items.length - 1]);
-      // Over its own placeholder nothing changes (it is picked up by its
-      // header, at the top edge of its row).
-      if (over.id === id && ly >= r.top && ly <= r.bottom) return target;
-      // The row a replaced block was pushed into stands for the place below
-      // the row it came from.
-      const pushed = target.type === 'replace' && target.row !== srcRow && others.length === 1 &&
-        others[0].id === base[target.row].items[target.index].id;
-      const b = rowOf(others[0].id);
-      const edge = Math.min(EDGE, (r.bottom - r.top) / 4);
-      if (ly < r.top + edge) return { type: 'new', at: pushed ? b + 1 : b };
-      if (ly > r.bottom - edge) return { type: 'new', at: b + 1 };
-      if (over.id === id) return target;
-      const index = base[b].items.findIndex((x) => x.id === over.id);
-      const side = Math.min(70, over.width * 0.2);
-      const tries = lx < over.left + side ? ['join', 'replace'] : lx > over.left + over.width - side ? ['join+', 'replace'] : ['replace', 'join'];
-      for (const k of tries) {
-        const t = k === 'replace' ? { type: 'replace', row: b, index } : { type: 'join', row: b, index: index + (k === 'join+' ? 1 : 0) };
-        if (build(t)) return t;
+    const unchanged = JSON.stringify(rows);
+    // The layout stays as it is until the drop; this.geo holds its boxes.
+    // Base index of a new row put just before row p of the layout.
+    const newBefore = (p) => {
+      const rs = this.geo.rows;
+      if (p >= rs.length) return base.length;
+      const o = rs[p].items.find((x) => x.id !== id);
+      return o ? rowOf(o.id) : ri;
+    };
+    const hbar = (y) => ({ kind: 'line', left: 0, top: y - 3, width: this.host.clientWidth, height: 6, label: t('New row') });
+    const vbar = (x, r) => ({ kind: 'line', left: Math.max(0, x - 3), top: r.top, width: 6, height: r.bottom - r.top, label: t('Side by side') });
+    // The drop under the pointer (host coordinates): { next, mark } where
+    // next is the resulting layout and mark what shows it; null for none.
+    const dropAt = (lx, ly) => {
+      const rs = this.geo.rows;
+      let cands;
+      if (!rs.length) return null;
+      const p = rs.findIndex((r) => ly <= r.bottom);
+      if (p < 0) {
+        cands = [{ t: { type: 'new', at: base.length }, mark: hbar(rs[rs.length - 1].bottom + GAP / 2) }];
+      } else if (ly < rs[p].top) {
+        cands = [{ t: { type: 'new', at: newBefore(p) }, mark: hbar(p ? (rs[p - 1].bottom + rs[p].top) / 2 : rs[0].top - GAP / 2) }];
+      } else {
+        const r = rs[p];
+        const over = r.items.find((x) => lx < x.left + x.width + GAP / 2) || r.items[r.items.length - 1];
+        if (over.id === id) return null; // its own place
+        const above = { t: { type: 'new', at: newBefore(p) }, mark: hbar(p ? (rs[p - 1].bottom + r.top) / 2 : r.top - GAP / 2) };
+        const below = { t: { type: 'new', at: newBefore(p + 1) }, mark: hbar(r.bottom + GAP / 2) };
+        const zone = Math.min(56, (r.bottom - r.top) * 0.2);
+        if (ly < r.top + zone) cands = [above];
+        else if (ly > r.bottom - zone) cands = [below];
+        else {
+          const b = rowOf(over.id);
+          const index = base[b].items.findIndex((x) => x.id === over.id);
+          const left = { t: { type: 'join', row: b, index }, mark: vbar(over.left - GAP / 2, r) };
+          const right = { t: { type: 'join', row: b, index: index + 1 }, mark: vbar(over.left + over.width + GAP / 2, r) };
+          const repl = { t: { type: 'replace', row: b, index }, mark: { kind: 'box', left: over.left, top: r.top, width: over.width, height: r.bottom - r.top, label: t('Replace') } };
+          const f = (lx - over.left) / over.width;
+          const row = ly < (r.top + r.bottom) / 2 ? above : below;
+          cands = f < 0.3 ? [left, repl, row] : f > 0.7 ? [right, repl, row] : [repl, f < 0.5 ? left : right, row];
+        }
       }
-      return { type: 'new', at: ly < (r.top + r.bottom) / 2 ? b : b + 1 };
+      for (const c of cands) {
+        const next = build(c.t);
+        if (next) return JSON.stringify(next) === unchanged ? null : { next, mark: c.mark };
+      }
+      return null;
     };
 
-    const start = this.geo.rects.get(id);
-    const hr0 = this.host.getBoundingClientRect();
-    const offX = e.clientX - hr0.left - start.left, offY = e.clientY - hr0.top - start.top;
+    // Where it was grabbed, on the block as shown (it may still be moving).
+    const start = el.getBoundingClientRect();
+    const offX = e.clientX - start.left, offY = e.clientY - start.top;
+    // The picked-up block shrinks around the pointer so what is under it
+    // stays visible.
+    const scale = Math.max(0.25, Math.min(0.7, 420 / start.width, 300 / start.height));
+    el.style.transformOrigin = `${offX}px ${offY}px`;
     const sc = this.host.closest('.main');
     let px = firstMove.clientX, py = firstMove.clientY;
+    let drop = null;
     this.dragId = id;
-    this.preview = rows;
     el.classList.add('dragging');
     document.body.classList.add('grid-dragging');
     this.render();
 
-    // Where the pointer was at the last change: the blocks moving under a
-    // still pointer must not flip the place back.
-    let at = null;
     const place = () => {
       const hr = this.host.getBoundingClientRect();
       const lx = px - hr.left, ly = py - hr.top;
-      el.style.transform = `translate(${lx - offX}px, ${ly - offY}px) scale(1.01)`;
-      if (at && Math.hypot(lx - at.x, ly - at.y) < 10) return;
-      const t = targetAt(lx, ly);
-      if (same(t, target)) return;
-      const next = build(t);
-      if (!next) return;
-      target = t;
-      at = { x: lx, y: ly };
-      this.preview = next;
-      this.render();
+      el.style.transform = `translate(${lx - offX}px, ${ly - offY}px) scale(${scale})`;
+      drop = dropAt(lx, ly);
+      this.showMark(drop && drop.mark);
     };
     let timer = 0;
     const tick = () => {
@@ -430,10 +458,12 @@ export class Board {
       clearTimeout(timer);
       el.classList.remove('dragging');
       document.body.classList.remove('grid-dragging');
-      const done = this.preview;
       this.dragId = null;
-      this.preview = null;
-      this.commit(done);
+      this.showMark(null);
+      if (drop) this.commit(drop.next);
+      else this.render();
+      // Grow back from the pointer only after it has been placed.
+      setTimeout(() => { el.style.transformOrigin = ''; }, 260);
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', end);
