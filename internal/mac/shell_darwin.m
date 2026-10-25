@@ -4,6 +4,7 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #import <UserNotifications/UserNotifications.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "mac.h"
 #include "_cgo_export.h"
 
@@ -479,7 +480,12 @@ char *tsPickFile(const char *title, const char *exts, const char *dir) {
 		p.canChooseFiles = YES;
 		p.canChooseDirectories = NO;
 		p.allowsMultipleSelection = NO;
-		if (e.length > 0) p.allowedFileTypes = [e componentsSeparatedByString:@","];
+		NSMutableArray<UTType *> *types = [NSMutableArray new];
+		for (NSString *ext in (e.length > 0 ? [e componentsSeparatedByString:@","] : @[])) {
+			UTType *type = [UTType typeWithFilenameExtension:ext];
+			if (type != nil) [types addObject:type];
+		}
+		if (types.count > 0) p.allowedContentTypes = types;
 		if (d.length > 0) p.directoryURL = [NSURL fileURLWithPath:d isDirectory:YES];
 		activateApp();
 		if ([p runModal] == NSModalResponseOK) res = dupstr(p.URL.path);

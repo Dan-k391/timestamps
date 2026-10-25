@@ -6,7 +6,7 @@ package mac
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework UserNotifications -framework ApplicationServices -framework CoreGraphics -framework CoreAudio -framework CoreServices -framework ScriptingBridge
+#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework UserNotifications -framework ApplicationServices -framework CoreGraphics -framework CoreAudio -framework CoreServices -framework ScriptingBridge -framework UniformTypeIdentifiers
 #include "mac.h"
 */
 import "C"
