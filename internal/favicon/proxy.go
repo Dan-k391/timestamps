@@ -1,32 +1,10 @@
 package favicon
 
 import (
-	"net/http"
 	"net/url"
 	"path"
 	"strings"
-
-	"golang.org/x/sys/windows/registry"
 )
-
-// Proxy uses the proxy from the environment, else the Windows proxy setting
-// (what tools such as Clash set), so sites that need it can be reached.
-func Proxy(req *http.Request) (*url.URL, error) {
-	if u, err := http.ProxyFromEnvironment(req); u != nil || err != nil {
-		return u, err
-	}
-	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.QUERY_VALUE)
-	if err != nil {
-		return nil, nil
-	}
-	defer k.Close()
-	if on, _, err := k.GetIntegerValue("ProxyEnable"); err != nil || on == 0 {
-		return nil, nil
-	}
-	server, _, _ := k.GetStringValue("ProxyServer")
-	override, _, _ := k.GetStringValue("ProxyOverride")
-	return systemProxy(server, override, req.URL)
-}
 
 // systemProxy picks the proxy for u from a Windows ProxyServer value
 // ("host:port" or "http=host:port;https=host:port") and ProxyOverride list.
@@ -59,4 +37,40 @@ func systemProxy(server, override string, u *url.URL) (*url.URL, error) {
 		addr = "http://" + addr
 	}
 	return url.Parse(addr)
+}
+
+// scutilProxy turns the output of macOS "scutil --proxy" into the Windows
+// ProxyServer and ProxyOverride forms that systemProxy reads.
+func scutilProxy(out string) (server, override string) {
+	vals := map[string]string{}
+	var except []string
+	inList := false
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		k, v, ok := strings.Cut(line, " : ")
+		switch {
+		case strings.HasPrefix(line, "ExceptionsList"):
+			inList = true
+		case inList && line == "}":
+			inList = false
+		case inList && ok:
+			except = append(except, strings.TrimSpace(v))
+		case ok:
+			vals[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	var parts []string
+	for _, p := range []struct{ scheme, key string }{{"http", "HTTP"}, {"https", "HTTPS"}} {
+		if vals[p.key+"Enable"] == "1" && vals[p.key+"Proxy"] != "" {
+			addr := vals[p.key+"Proxy"]
+			if port := vals[p.key+"Port"]; port != "" {
+				addr += ":" + port
+			}
+			parts = append(parts, p.scheme+"="+addr)
+		}
+	}
+	if vals["ExcludeSimpleHostnames"] == "1" {
+		except = append(except, "<local>")
+	}
+	return strings.Join(parts, ";"), strings.Join(except, ";")
 }

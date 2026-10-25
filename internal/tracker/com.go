@@ -3,8 +3,6 @@
 package tracker
 
 import (
-	"net/url"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -222,17 +220,6 @@ func explorerFolder(shell **ole.IDispatch, hwnd uintptr, title string) string {
 		item.Release()
 	}
 	return best
-}
-
-func fileURLToPath(u string) string {
-	if !strings.HasPrefix(strings.ToLower(u), "file:///") {
-		return ""
-	}
-	p, err := url.PathUnescape(u[8:])
-	if err != nil {
-		return ""
-	}
-	return filepath.FromSlash(p)
 }
 
 // resolveLink returns the target of a .lnk shortcut.

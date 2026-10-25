@@ -2,12 +2,8 @@ package server
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,8 +12,10 @@ import (
 	"timestamps/internal/favicon"
 )
 
-// Releases come from GitHub; the asset Timestamps-Setup-<version>.exe
-// installs one (with /update it replaces the running app and restarts it).
+// Releases come from GitHub. On Windows the asset
+// Timestamps-Setup-<version>.exe installs one (with /update it replaces the
+// running app and restarts it); on macOS the app comes zipped as
+// Timestamps-<version>-macos.zip (update_*.go).
 const releasesAPI = "https://api.github.com/repos/ZJJ-2785/timestamps/releases/latest"
 
 // UpdateInfo compares the newest release with this version.
@@ -26,7 +24,7 @@ type UpdateInfo struct {
 	Latest    string `json:"latest,omitempty"`
 	Available bool   `json:"available"`
 	Page      string `json:"page,omitempty"`  // release page
-	Setup     string `json:"setup,omitempty"` // setup download
+	Setup     string `json:"setup,omitempty"` // download for this platform
 	Notes     string `json:"notes,omitempty"`
 	Checked   int64  `json:"checked,omitempty"`
 	Error     string `json:"error,omitempty"` // offline | notfound | bad
@@ -77,7 +75,7 @@ func (s *Server) CheckUpdate(force bool) UpdateInfo {
 		info.Page, info.Notes = rel.Page, rel.Body
 		info.Available = newer(info.Latest, Version)
 		for _, a := range rel.Assets {
-			if strings.HasPrefix(a.Name, "Timestamps-Setup-") && strings.HasSuffix(a.Name, ".exe") {
+			if updateAsset(a.Name) {
 				info.Setup = a.URL
 			}
 		}
@@ -105,40 +103,4 @@ func newer(a, b string) bool {
 		}
 	}
 	return false
-}
-
-// installUpdate downloads the newest setup, starts it in update mode and
-// quits, so the setup can replace this program and start the new one.
-func (s *Server) installUpdate() error {
-	info := s.CheckUpdate(false)
-	if !info.Available || info.Setup == "" {
-		return errors.New("there is no update to install")
-	}
-	resp, err := updateClient.Get(info.Setup)
-	if err != nil {
-		return errors.New("couldn't download the update")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return errors.New("couldn't download the update")
-	}
-	path := filepath.Join(os.TempDir(), "Timestamps-Setup-"+info.Latest+".exe")
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	n, err := io.Copy(f, io.LimitReader(resp.Body, 300<<20))
-	f.Close()
-	if err != nil || n < 1<<20 {
-		os.Remove(path)
-		return errors.New("the download was incomplete")
-	}
-	if err := exec.Command(path, "/update").Start(); err != nil {
-		return err
-	}
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		s.Host.Quit()
-	}()
-	return nil
 }

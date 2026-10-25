@@ -5,6 +5,7 @@ import { bytes, today, addDays, fmtDate, dateKey, fmtDateLong } from '../fmt.js'
 import * as api from '../api.js';
 import { state, emit } from '../state.js';
 import { go } from '../router.js';
+import { isMac, keys, byOS } from '../platform.js';
 
 const SECTIONS = [
   ['general', 'settings', 'General'],
@@ -92,9 +93,9 @@ export function mount(el, params) {
         row(t('Clock'), select([['24', t('24-hour')], ['12', t('12-hour')]], s.clock24 ? '24' : '12', (v) => save({ clock24: v === '24' }))),
         row(t('First day of the week'), select([[1, t('Monday')], [0, t('Sunday')]], s.weekStart, (v) => save({ weekStart: +v })))),
       group(t('Startup and window'),
-        row(t('Start with Windows'), sw('runAtStartup'), t('Starts minimized in the notification area.')),
+        row(t(byOS('Open at login', 'Start with Windows')), sw('runAtStartup'), t(byOS('Starts in the menu bar.', 'Starts minimized in the notification area.'))),
         row(t('Start minimized'), sw('startMinimized')),
-        row(t('Keep tracking when the window is closed'), sw('closeToTray'), t('The window closes to free memory; tracking continues in the tray.'))),
+        row(t('Keep tracking when the window is closed'), sw('closeToTray'), t(byOS('The window closes to free memory; tracking continues in the menu bar.', 'The window closes to free memory; tracking continues in the tray.')))),
       group(t('Tagging'),
         row(t('Recent tags to show'), num('recentTags', 3, 30)),
         row(t('Stopwatch reminder'), num('stopwatchNag', 0, 480, t('minutes (0 = off)')))));
@@ -108,13 +109,13 @@ export function mount(el, params) {
         h('span', { class: 'mono' }, x.app),
         select([['titles', t('Hide window titles and documents')], ['screenshots', t('No screenshots')], ['all', t('Do not track (show as Private)')]], x.mode, (v) => { s.exclusions[i].mode = v; save({ exclusions: s.exclusions }); }),
         button('', { icon: 'trash', small: true, variant: 'ghost', onClick: () => { s.exclusions.splice(i, 1); save({ exclusions: s.exclusions }); drawExcl(); } }))));
-      const input = h('input', { class: 'input', placeholder: t('Program, e.g. keepass.exe'), list: 'app-list' });
+      const input = h('input', { class: 'input', placeholder: t(byOS('App, e.g. keepassxc', 'Program, e.g. keepass.exe')), list: 'app-list' });
       const dl = h('datalist', { id: 'app-list' });
       api.get('apps').then((apps) => apps.forEach((a) => dl.append(h('option', { value: a.key }, a.name))));
       excl.append(h('div', { class: 'excl add' }, input, dl, button(t('Add'), { icon: 'plus', small: true, onClick: () => {
         const v = input.value.trim().toLowerCase();
         if (!v) return;
-        s.exclusions = [...(s.exclusions || []), { app: v.endsWith('.exe') ? v : v + '.exe', mode: 'titles' }];
+        s.exclusions = [...(s.exclusions || []), { app: isMac || v.endsWith('.exe') ? v : v + '.exe', mode: 'titles' }];
         save({ exclusions: s.exclusions });
         drawExcl();
       } })));
@@ -137,8 +138,8 @@ export function mount(el, params) {
         row(t('Only ask when away for at least'), num('awayPromptMinutes', 1, 240, t('minutes')))),
       group(t('Details'),
         row(t('Record window titles'), sw('trackTitles')),
-        row(t('Record documents and websites'), sw('trackDocuments'), t('Full file paths come from Office/WPS, Explorer, the program command line and Windows Recent items.')),
-        row(t('Read the browser address bar'), sw('readAddressBar'), t('Uses Windows UI Automation for Chrome, Edge, Firefox, Brave, Opera, Vivaldi and others. The browser extension is an alternative.')),
+        row(t('Record documents and websites'), sw('trackDocuments'), t(byOS('Full file paths come from the open document of the window, the window title and Spotlight.', 'Full file paths come from Office/WPS, Explorer, the program command line and Windows Recent items.'))),
+        row(t('Read the browser address bar'), sw('readAddressBar'), t(byOS('Asks Safari, Chrome, Edge, Brave, Arc, Vivaldi and Opera for the current tab; macOS asks you once per browser. Firefox needs the browser extension.', 'Uses Windows UI Automation for Chrome, Edge, Firefox, Brave, Opera, Vivaldi and others. The browser extension is an alternative.'))),
         row(t('Record private / incognito browsing'), sw('trackPrivate'), t('Needs the browser extension to recognise private windows.')),
         row(t('Merge subdomains'), sw('mergeSubdomains'), t('Count t.example.com, www.example.com and example.com as one website.')),
         row(t('Download missing website icons'), sw('siteIcons'), t('Icons come from your browsers\' own icon cache first; only sites missing there are asked for their icon.'))),
@@ -281,7 +282,7 @@ export function mount(el, params) {
         row(t('Format'), select([['csv', 'CSV'], ['xlsx', 'Excel (.xlsx)']], expFmt, (v) => (expFmt = v))),
         row('', button(t('Export'), { icon: 'download', variant: 'primary', small: true, onClick: () => api.download('export', { timeline: expTl, from: expFrom, to: expTo, format: expFmt }) }))),
       group(t('Backup'),
-        row(t('Database'), h('div', { class: 'inline' }, h('span', { class: 'mono path' }, info.dataDir + '\\timestamps.db'), h('span', { class: 'muted' }, bytes(info.dbSize)))),
+        row(t('Database'), h('div', { class: 'inline' }, h('span', { class: 'mono path' }, info.dataDir + byOS('/', '\\') + 'timestamps.db'), h('span', { class: 'muted' }, bytes(info.dbSize)))),
         row(t('Records'), h('span', { class: 'muted' }, t('{0} app, {1} document, {2} usage, {3} tag records · since {4}', info.db.Apps.toLocaleString(), info.db.Docs.toLocaleString(), info.db.Usage.toLocaleString(), info.db.Tags.toLocaleString(), info.db.First ? fmtDateLong(dateKey(new Date(info.db.First * 1000))) : '—'))),
         row(t('Automatic backup'), select([[0, t('Off')], [1, t('Daily')], [7, t('Weekly')], [30, t('Monthly')]], s.backupDays, (v) => save({ backupDays: +v })),
           info.lastBackup ? t('Last backup: {0}', new Date(+info.lastBackup * 1000).toLocaleString()) : null),
@@ -310,8 +311,8 @@ export function mount(el, params) {
       [t('Mouse wheel'), t('Zoom the timeline')], ['Shift + ' + t('Mouse wheel'), t('Scroll the timeline')], [t('Drag'), t('Select time (snaps to activity edges)')],
       [t('Click'), t('Select an activity')], ['Shift + ' + t('Click'), t('Extend the selection')], [t('Double-click'), t('Tag an activity / edit a tag')],
       ['E / Enter', t('Tag the selection')], ['Delete', t('Clear tags in the selection')], ['B', t('Toggle billable')],
-      ['Ctrl + C / Ctrl + V', t('Copy / paste a tag')], ['+ / −', t('Zoom in / out')], ['0', t('Fit active hours')], ['Shift + 0', t('Whole day')],
-      ['Ctrl + F', t('Filter the timeline')], ['Esc', t('Clear selection / close')], ['Ctrl + K', t('Search')],
+      [keys('Ctrl + C / Ctrl + V'), t('Copy / paste a tag')], ['+ / −', t('Zoom in / out')], ['0', t('Fit active hours')], ['Shift + 0', t('Whole day')],
+      [keys('Ctrl + F'), t('Filter the timeline')], ['Esc', t('Clear selection / close')], [keys('Ctrl + K'), t('Search')],
     ];
     body.append(group(null, h('table', { class: 'table keys' }, h('tbody', null, list.map(([k, d]) => h('tr', null, h('td', null, h('kbd', null, k)), h('td', null, d)))))));
   }

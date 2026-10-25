@@ -4,6 +4,7 @@ import { t } from './i18n.js';
 import { dur, durLong, clock } from './fmt.js';
 import * as api from './api.js';
 import { state, loadTags } from './state.js';
+import { mod } from './platform.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -91,7 +92,7 @@ export function openTagDialog(seg, { title, subtitle } = {}) {
       title: title || (seg.id ? t('Edit tag') : t('Tag time')) + ` · ${clock(seg.s)}–${clock(seg.e)}`,
       body, actions, width: 520, onClose: () => resolve(changed),
     });
-    m.el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) save(); });
+    m.el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && mod(e)) save(); });
   });
 }
 

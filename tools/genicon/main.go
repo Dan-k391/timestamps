@@ -1,7 +1,7 @@
-// Command genicon renders the Timestamps logo into the app .ico, the web
-// icon and the browser extension PNGs: the day ring the tray shows, drawn
-// as it looks at 18:00 (three quarters full, orange). The running app draws
-// the live ring itself.
+// Command genicon renders the Timestamps logo into the app .ico, the macOS
+// .icns, the web icon and the browser extension PNGs: the day ring the tray
+// shows, drawn as it looks at 18:00 (three quarters full, orange). The
+// running app draws the live ring itself.
 package main
 
 import (
@@ -19,6 +19,29 @@ import (
 const frac = 0.75
 
 func render(size int) *image.NRGBA { return ring.Draw(size, frac, ring.Color(frac)) }
+
+// icns packs PNG renderings of the ring, laid out as a macOS icon, into an
+// Apple icon file.
+func icns() []byte {
+	pngs := map[int][]byte{}
+	for _, s := range []int{16, 32, 64, 128, 256, 512, 1024} {
+		pngs[s] = pngBytes(ring.DrawIcon(s, frac, ring.Color(frac)))
+	}
+	var body bytes.Buffer
+	for _, e := range []struct {
+		typ  string
+		size int
+	}{{"icp4", 16}, {"icp5", 32}, {"icp6", 64}, {"ic07", 128}, {"ic08", 256}, {"ic09", 512}, {"ic10", 1024}, {"ic11", 32}, {"ic12", 64}, {"ic13", 256}, {"ic14", 512}} {
+		body.WriteString(e.typ)
+		binary.Write(&body, binary.BigEndian, uint32(8+len(pngs[e.size])))
+		body.Write(pngs[e.size])
+	}
+	var out bytes.Buffer
+	out.WriteString("icns")
+	binary.Write(&out, binary.BigEndian, uint32(8+body.Len()))
+	out.Write(body.Bytes())
+	return out.Bytes()
+}
 
 func pngBytes(img image.Image) []byte {
 	var b bytes.Buffer
@@ -51,6 +74,7 @@ func main() {
 	}
 	os.MkdirAll(filepath.Join(root, "assets"), 0o755)
 	os.WriteFile(filepath.Join(root, "assets", "app.ico"), ico.Bytes(), 0o644)
+	os.WriteFile(filepath.Join(root, "assets", "Timestamps.icns"), icns(), 0o644)
 	for _, dir := range []string{"extension", filepath.Join("extension", "firefox")} {
 		for _, s := range []int{16, 48, 128} {
 			os.WriteFile(filepath.Join(root, dir, "icon"+strconv.Itoa(s)+".png"), pngBytes(render(s)), 0o644)

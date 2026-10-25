@@ -1,5 +1,3 @@
-//go:build windows
-
 package tracker
 
 import (
@@ -18,7 +16,6 @@ import (
 	"time"
 
 	"timestamps/internal/store"
-	"timestamps/internal/win"
 )
 
 // Shooter takes periodic, downscaled screenshots of the active monitor.
@@ -328,18 +325,11 @@ func (s *Shooter) Capture(st store.Settings) {
 	}
 	defer s.busy.Store(false)
 	st.ShotsSkipSame = false
-	s.capture(time.Now(), st, win.ForegroundWindow())
+	s.capture(time.Now(), st, foregroundWindow())
 }
 
 func (s *Shooter) capture(now time.Time, st store.Settings, fg uintptr) {
-	var r win.RECT
-	if st.ShotsAllScreen {
-		x, y := win.SystemMetric(76), win.SystemMetric(77)
-		r = win.RECT{Left: int32(x), Top: int32(y), Right: int32(x + win.SystemMetric(78)), Bottom: int32(y + win.SystemMetric(79))}
-	} else {
-		r = win.MonitorRect(fg)
-	}
-	img, err := win.CaptureRect(r)
+	img, err := grabScreen(fg, st.ShotsAllScreen)
 	if err != nil {
 		log.Println("screenshot:", err)
 		return

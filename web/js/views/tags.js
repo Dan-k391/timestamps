@@ -5,6 +5,7 @@ import { dur, hex, fmtDate, dateKey } from '../fmt.js';
 import * as api from '../api.js';
 import { loadTags, state } from '../state.js';
 import { go } from '../router.js';
+import { byOS } from '../platform.js';
 
 export function mount(el) {
   el.className = 'view tags-view';
@@ -20,7 +21,7 @@ export function mount(el) {
     const q = search.value.trim().toLowerCase();
     const rows = state.tagList.filter((x) => !q || x.tags.toLowerCase().includes(q));
     if (!state.tagList.length) {
-      body.append(empty('tag', t('No tags yet'), t('Select time on the timeline and press E, start a stopwatch from the tray, or create autotag rules.')));
+      body.append(empty('tag', t('No tags yet'), t(byOS('Select time on the timeline and press E, start a stopwatch from the menu bar, or create autotag rules.', 'Select time on the timeline and press E, start a stopwatch from the tray, or create autotag rules.'))));
       return;
     }
     const table = h('table', { class: 'table' },

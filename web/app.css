@@ -1,7 +1,7 @@
 /* Timestamps UI */
 :root {
-  --font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
-  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", monospace;
+  --font: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, "Microsoft YaHei UI", "PingFang SC", monospace;
   --r: 8px;
   --r-lg: 12px;
 }

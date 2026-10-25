@@ -1,8 +1,6 @@
-//go:build windows
-
-// Timestamps is a fast, private time tracker for Windows: it records which
-// applications, documents and websites you use, lets you tag time, and
-// reports on it. All data stays in a local SQLite database.
+// Timestamps is a fast, private time tracker for Windows and macOS: it
+// records which applications, documents and websites you use, lets you tag
+// time, and reports on it. All data stays in a local SQLite database.
 package main
 
 import (
@@ -22,7 +20,6 @@ import (
 	"timestamps/internal/server"
 	"timestamps/internal/store"
 	"timestamps/internal/tracker"
-	"timestamps/internal/win"
 	"timestamps/web"
 )
 
@@ -30,27 +27,26 @@ func init() { runtime.LockOSThread() }
 
 func main() {
 	minimized := flag.Bool("minimized", false, "start in the tray without opening the window")
-	dataFlag := flag.String("data", "", "data directory (default %LOCALAPPDATA%\\Timestamps)")
+	dataFlag := flag.String("data", "", "data directory (default "+dataDirHelp+")")
 	flag.Parse()
 
-	win.SetDPIAware()
+	platformInit()
 	dataDir := *dataFlag
 	if dataDir == "" {
-		dataDir = filepath.Join(os.Getenv("LOCALAPPDATA"), "Timestamps")
+		dataDir = defaultDataDir()
 	}
 	dataDir, _ = filepath.Abs(dataDir)
 	os.MkdirAll(dataDir, 0o755)
 	setupLog(dataDir)
 
-	mutex := "Local\\Timestamps-" + strconv.FormatUint(uint64(hashString(strings.ToLower(dataDir))), 16)
-	if !win.SingleInstance(mutex) {
+	if !singleInstance(dataDir) {
 		signalRunning()
 		return
 	}
 
 	db, err := store.Open(filepath.Join(dataDir, "timestamps.db"))
 	if err != nil {
-		win.MessageBox("Timestamps", "Could not open the database:\n"+err.Error())
+		alert("Timestamps", "Could not open the database:\n"+err.Error())
 		return
 	}
 	settings := db.Settings()
@@ -77,7 +73,7 @@ func main() {
 	app := newApp(db, t, srv, dataDir)
 	srv.Host = app
 	if err := srv.Listen(); err != nil {
-		win.MessageBox("Timestamps", err.Error())
+		alert("Timestamps", err.Error())
 		return
 	}
 	go func() {

@@ -1,9 +1,7 @@
-//go:build windows
-
 package tracker
 
 import (
-	"os"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -11,10 +9,7 @@ import (
 	"sync"
 	"time"
 
-	ole "github.com/go-ole/go-ole"
-
 	"timestamps/internal/store"
-	"timestamps/internal/win"
 )
 
 // Doc is the document detected in the foreground window.
@@ -24,32 +19,6 @@ type Doc struct {
 	Name    string // file name or page title
 	Grp     string // file name or domain
 	Private bool
-}
-
-var browserExes = map[string]bool{
-	"chrome.exe": true, "msedge.exe": true, "brave.exe": true, "opera.exe": true, "vivaldi.exe": true,
-	"chromium.exe": true, "browser.exe": true, "360se.exe": true, "360chrome.exe": true, "qqbrowser.exe": true,
-	"sogouexplorer.exe": true, "2345explorer.exe": true, "liebao.exe": true, "centbrowser.exe": true,
-	"arc.exe": true, "thorium.exe": true, "iexplore.exe": true,
-	"firefox.exe": true, "waterfox.exe": true, "librewolf.exe": true, "floorp.exe": true, "zen.exe": true,
-}
-
-var firefoxExes = map[string]bool{"firefox.exe": true, "waterfox.exe": true, "librewolf.exe": true, "floorp.exe": true, "zen.exe": true}
-
-// Office-style apps whose open document is available over COM.
-var comDocs = map[string][][]string{
-	"winword.exe":  {{"Word.Application", "ActiveDocument", "FullName"}},
-	"excel.exe":    {{"Excel.Application", "ActiveWorkbook", "FullName"}},
-	"powerpnt.exe": {{"PowerPoint.Application", "ActivePresentation", "FullName"}},
-	"visio.exe":    {{"Visio.Application", "ActiveDocument", "FullName"}},
-	"winproj.exe":  {{"MSProject.Application", "ActiveProject", "FullName"}},
-	"wps.exe": {
-		{"KWps.Application", "ActiveDocument", "FullName"},
-		{"Ket.Application", "ActiveWorkbook", "FullName"},
-		{"Kwpp.Application", "ActivePresentation", "FullName"},
-	},
-	"et.exe":  {{"Ket.Application", "ActiveWorkbook", "FullName"}},
-	"wpp.exe": {{"Kwpp.Application", "ActivePresentation", "FullName"}},
 }
 
 // IsBrowser reports whether an executable is a web browser.
@@ -100,80 +69,6 @@ func fileFromTitle(title string) string {
 	return ""
 }
 
-// recentIndex maps file names to shortcuts in the user's Recent Items
-// folder, which Windows updates whenever a file is opened via the shell or
-// a common dialog.
-type recentIndex struct {
-	dir      string
-	checked  time.Time
-	modTime  time.Time
-	byName   map[string]string
-	resolved map[string]string
-}
-
-func newRecentIndex() *recentIndex {
-	return &recentIndex{
-		dir:      filepath.Join(os.Getenv("APPDATA"), `Microsoft\Windows\Recent`),
-		byName:   map[string]string{},
-		resolved: map[string]string{},
-	}
-}
-
-func (r *recentIndex) refresh() {
-	if time.Since(r.checked) < 3*time.Second {
-		return
-	}
-	r.checked = time.Now()
-	st, err := os.Stat(r.dir)
-	if err != nil || st.ModTime().Equal(r.modTime) {
-		return
-	}
-	r.modTime = st.ModTime()
-	ents, err := os.ReadDir(r.dir)
-	if err != nil {
-		return
-	}
-	names := make(map[string]string, len(ents))
-	for _, e := range ents {
-		n := e.Name()
-		if !strings.HasSuffix(strings.ToLower(n), ".lnk") {
-			continue
-		}
-		names[strings.ToLower(strings.TrimSuffix(n, n[len(n)-4:]))] = filepath.Join(r.dir, n)
-	}
-	r.byName = names
-	r.resolved = map[string]string{}
-}
-
-// lookup returns the full path of a recently opened file with this name.
-func (r *recentIndex) lookup(name string) string {
-	r.refresh()
-	key := strings.ToLower(name)
-	if p, ok := r.resolved[key]; ok {
-		return p
-	}
-	lnk := r.byName[key]
-	p := ""
-	if lnk != "" {
-		if t := resolveLink(lnk); t != "" && strings.EqualFold(filepath.Base(t), name) {
-			p = t
-		}
-	}
-	r.resolved[key] = p
-	return p
-}
-
-// pathFromCommandLine matches a file name against a process's arguments.
-func pathFromCommandLine(cmd, name string) string {
-	for _, a := range win.SplitCommandLine(cmd) {
-		a = strings.Trim(a, `"`)
-		if filepath.IsAbs(a) && strings.EqualFold(filepath.Base(a), name) {
-			return a
-		}
-	}
-	return ""
-}
-
 type docReq struct {
 	hwnd  uintptr
 	pid   uint32
@@ -188,22 +83,23 @@ type docOpts struct {
 	extURL     func(title string) (url string, private bool, ok bool)
 }
 
-// docWorker owns a COM apartment and answers document queries.
-type docWorker struct {
-	reqs    chan docReq
-	mu      sync.Mutex
-	busy    time.Time
-	cmdMu   sync.Mutex
-	cmdLine map[uint32]cmdEntry
+// detector finds the document shown in a window. Each platform has one;
+// it lives on the worker's locked thread and is only used from there.
+type detector interface {
+	detect(r docReq) Doc
+	close()
 }
 
-type cmdEntry struct {
-	cmd string
-	at  time.Time
+// docWorker answers document queries on a thread of its own, so a slow or
+// hung application can't stall the tracker.
+type docWorker struct {
+	reqs chan docReq
+	mu   sync.Mutex
+	busy time.Time
 }
 
 func newDocWorker() *docWorker {
-	w := &docWorker{cmdLine: map[uint32]cmdEntry{}}
+	w := &docWorker{}
 	w.start()
 	return w
 }
@@ -213,33 +109,30 @@ func (w *docWorker) start() {
 	reqs := w.reqs
 	go func() {
 		runtime.LockOSThread()
-		ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
-		defer ole.CoUninitialize()
-		u := newUIA()
-		recent := newRecentIndex()
-		var shell *ole.IDispatch
+		d := newDetector()
+		defer d.close()
 		for r := range reqs {
 			w.mu.Lock()
 			w.busy = time.Now()
 			w.mu.Unlock()
-			d := w.detect(r, u, recent, &shell)
+			doc := d.detect(r)
 			w.mu.Lock()
 			w.busy = time.Time{}
 			w.mu.Unlock()
-			r.resp <- d
+			r.resp <- doc
 		}
 	}()
 }
 
 // query asks the worker for the document in a window, giving up after
-// timeout. A worker stuck in a COM call for too long is replaced.
+// timeout. A worker stuck in a call for too long is replaced.
 func (w *docWorker) query(r docReq, timeout time.Duration) (Doc, bool) {
 	r.resp = make(chan Doc, 1)
 	w.mu.Lock()
 	busy := w.busy
 	w.mu.Unlock()
 	if !busy.IsZero() && time.Since(busy) > 20*time.Second {
-		w.start() // abandon the hung apartment thread
+		w.start() // abandon the hung thread
 	}
 	select {
 	case w.reqs <- r:
@@ -252,60 +145,6 @@ func (w *docWorker) query(r docReq, timeout time.Duration) (Doc, bool) {
 	case <-time.After(timeout):
 		return Doc{}, false
 	}
-}
-
-func (w *docWorker) commandLine(pid uint32) string {
-	w.cmdMu.Lock()
-	defer w.cmdMu.Unlock()
-	if e, ok := w.cmdLine[pid]; ok && time.Since(e.at) < time.Minute {
-		return e.cmd
-	}
-	c := win.ProcessCommandLine(pid)
-	if len(w.cmdLine) > 256 {
-		w.cmdLine = map[uint32]cmdEntry{}
-	}
-	w.cmdLine[pid] = cmdEntry{c, time.Now()}
-	return c
-}
-
-func (w *docWorker) detect(r docReq, u *uia, recent *recentIndex, shell **ole.IDispatch) Doc {
-	if browserExes[r.exe] {
-		return w.browserDoc(r, u)
-	}
-	if r.exe == "explorer.exe" {
-		cls := win.ClassName(r.hwnd)
-		if cls == "CabinetWClass" || cls == "ExploreWClass" {
-			if p := explorerFolder(shell, r.hwnd, r.title); p != "" {
-				return fileDoc(p)
-			}
-		}
-		return Doc{}
-	}
-	name := fileFromTitle(r.title)
-	if chains, ok := comDocs[r.exe]; ok {
-		for _, c := range chains {
-			p := dispatchPath(c[0], c[1:]...)
-			if p == "" {
-				continue
-			}
-			if name == "" || strings.Contains(strings.ToLower(r.title), strings.ToLower(strings.TrimSuffix(filepath.Base(p), filepath.Ext(p)))) {
-				return fileDoc(p)
-			}
-		}
-	}
-	if name == "" {
-		return Doc{}
-	}
-	if filepath.IsAbs(name) {
-		return fileDoc(name)
-	}
-	if p := pathFromCommandLine(w.commandLine(r.pid), name); p != "" {
-		return fileDoc(p)
-	}
-	if p := recent.lookup(name); p != "" {
-		return fileDoc(p)
-	}
-	return Doc{Kind: store.KindFile, Key: name, Name: name, Grp: name}
 }
 
 func fileDoc(p string) Doc {
@@ -324,20 +163,6 @@ func PageTitle(title string) string {
 	t = browserSuffix.ReplaceAllString(t, "")
 	t = morePages.ReplaceAllString(t, "")
 	return strings.TrimSpace(t)
-}
-
-func (w *docWorker) browserDoc(r docReq, u *uia) Doc {
-	page := PageTitle(r.title)
-	if r.opts.extURL != nil {
-		if raw, private, ok := r.opts.extURL(page); ok {
-			return webDoc(raw, page, private)
-		}
-	}
-	if !r.opts.addressBar {
-		return Doc{}
-	}
-	raw := strings.TrimSpace(u.addressBar(r.hwnd, firefoxExes[r.exe]))
-	return webDoc(raw, page, false)
 }
 
 var reHostLike = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+(:\d+)?(/|$)|^localhost(:\d+)?(/|$)|^\d+\.\d+\.\d+\.\d+(:\d+)?(/|$)`)
@@ -373,4 +198,19 @@ func webDoc(raw, page string, private bool) Doc {
 		name = raw
 	}
 	return Doc{Kind: store.KindWeb, Key: raw, Name: name, Grp: store.Domain(raw), Private: private}
+}
+
+func fileURLToPath(u string) string {
+	if !strings.HasPrefix(strings.ToLower(u), "file:///") {
+		return ""
+	}
+	rest := u[8:] // C:/...
+	if runtime.GOOS != "windows" {
+		rest = u[7:] // keep the root slash
+	}
+	p, err := url.PathUnescape(rest)
+	if err != nil {
+		return ""
+	}
+	return filepath.FromSlash(p)
 }
