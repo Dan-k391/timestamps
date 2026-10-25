@@ -132,8 +132,9 @@ func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 		sites[key] += secs
 	}
 	rows.Close()
+	colors := db.SiteColors() // from the sites' icons; "" when unknown
 	for k, v := range sites {
-		st.Sites = append(st.Sites, Total{Key: k, Name: k, Kind: KindWeb, Color: ColorFor(k), Secs: v})
+		st.Sites = append(st.Sites, Total{Key: k, Name: k, Kind: KindWeb, Color: colors[strings.ToLower(k)], Secs: v})
 	}
 	sortTotals(st.Sites)
 

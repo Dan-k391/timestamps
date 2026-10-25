@@ -86,6 +86,9 @@ func Open(path string) (*DB, error) {
 		s.Close()
 		return nil, fmt.Errorf("schema: %w", err)
 	}
+	// Columns added after the first release.
+	addColumn(s, "app", "color_auto", "INTEGER NOT NULL DEFAULT 1") // 0 once a color was picked by hand
+	addColumn(s, "site_icon", "color", "TEXT NOT NULL DEFAULT ''")
 	db := &DB{sql: s, apps: map[string]int64{}, docs: map[string]int64{}, titles: map[string]int64{}, maxLen: map[string]*int64{}}
 	for _, t := range []string{TUsage, TApp, TDoc, TTag} {
 		var m sql.NullInt64
@@ -94,6 +97,25 @@ func Open(path string) (*DB, error) {
 		db.maxLen[t] = &v
 	}
 	return db, nil
+}
+
+func addColumn(s *sql.DB, table, col, def string) {
+	rows, err := s.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return
+	}
+	found := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk)
+		found = found || name == col
+	}
+	rows.Close()
+	if !found {
+		s.Exec("ALTER TABLE " + table + " ADD COLUMN " + col + " " + def)
+	}
 }
 
 // Close closes the database.

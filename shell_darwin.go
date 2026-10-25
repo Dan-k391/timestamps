@@ -236,3 +236,7 @@ func (a *App) ApplySettings(old, cur store.Settings) {
 		mac.RequestScreenCapture()
 	}
 }
+
+func systemDark() bool { return false }
+
+func (a *App) updateRing(paused bool) {}

@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"time"
 
+	"timestamps/internal/ring"
 	"timestamps/internal/server"
 	"timestamps/internal/store"
 	"timestamps/internal/tracker"
@@ -156,8 +158,54 @@ func (a *App) tipLoop() {
 			tip += " · " + a.Text("pausedTip")
 		}
 		a.setTip(tip)
+		a.updateRing(l.State == "paused")
 		time.Sleep(30 * time.Second)
 	}
+}
+
+// ringNow is what the app's icon, a ring that fills once a day, shows now:
+// the day in 5-minute steps and its color (gray while paused). key changes
+// whenever the drawing would.
+func ringNow(paused bool) (key string, frac float64, c color.NRGBA) {
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	step := int(now.Sub(midnight) / (5 * time.Minute))
+	frac = float64(step) * 5 * 60 / now.AddDate(0, 0, 1).Sub(midnight).Seconds()
+	c = ring.Color(frac)
+	if paused {
+		c = ring.Gray
+	}
+	return fmt.Sprint(step, paused), frac, c
+}
+
+// Page background of the color themes (as in web/app.css): light, dark.
+var themeBG = map[string][2]string{
+	"classic": {"f4f5f8", "0c0f15"}, "dkhd": {"fff3f7", "1c1827"},
+	"onedark": {"", "21252b"}, "dracula": {"", "21222c"}, "tokyonight": {"", "16161e"}, "githubdark": {"", "010409"}, "gruvboxdark": {"", "1d2021"},
+	"githublight": {"f6f8fa", ""}, "onelight": {"eaeaeb", ""}, "solarized": {"eee8d5", ""}, "latte": {"e6e9ef", ""}, "rosepinedawn": {"f2e9e1", ""},
+}
+
+// windowBackground is the page background (RRGGBB) of the theme in use.
+func (a *App) windowBackground() string {
+	st, i := a.t.Settings(), 0
+	id := st.LightTheme
+	if a.prefersDark() {
+		id, i = st.DarkTheme, 1
+	}
+	if c := themeBG[id][i]; c != "" {
+		return c
+	}
+	return themeBG["classic"][i]
+}
+
+func (a *App) prefersDark() bool {
+	switch a.t.Settings().Theme {
+	case "dark":
+		return true
+	case "light":
+		return false
+	}
+	return systemDark()
 }
 
 // Notify shows a tray notification.

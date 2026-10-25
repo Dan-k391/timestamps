@@ -55,6 +55,7 @@ const (
 	nifShowTip = 0x80
 
 	ninSelect           = WM_USER + 0
+	ninKeySelect        = WM_USER + 1
 	ninBalloonUserClick = WM_USER + 5
 
 	trayCallback = WM_APP + 10
@@ -100,7 +101,9 @@ var shellProc = windows.NewCallback(func(hwnd, msg, wp, lp uintptr) uintptr {
 	switch uint32(msg) {
 	case trayCallback:
 		switch uint32(lp & 0xffff) {
-		case WM_LBUTTONUP, ninSelect, WM_LBUTTONDBLCLK:
+		// With NOTIFYICON_VERSION_4 one click also sends WM_LBUTTONUP (and a
+		// double click WM_LBUTTONDBLCLK); NIN_SELECT is the click itself.
+		case ninSelect, ninKeySelect:
 			if s.OnLeftClick != nil {
 				s.OnLeftClick()
 			}
@@ -203,6 +206,13 @@ func (s *Shell) SetTip(tip string) {
 		copyUTF16(s.nid.Tip[:], tip)
 		pShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&s.nid)))
 	})
+}
+
+// SetIcon replaces the tray icon. Call it on the UI thread (see Invoke).
+func (s *Shell) SetIcon(icon uintptr) {
+	s.nid.Icon = icon
+	s.nid.Flags = nifMessage | nifIcon | nifTip | nifShowTip
+	pShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&s.nid)))
 }
 
 // Notify shows a balloon / toast from the tray icon.

@@ -1,141 +1,31 @@
 // Command genicon renders the Timestamps logo into the app .ico, the macOS
-// .icns and the browser extension PNGs.
+// .icns, the web icon and the browser extension PNGs: the day ring the tray
+// shows, drawn as it looks at 18:00 (three quarters full, orange). The
+// running app draws the live ring itself.
 package main
 
 import (
 	"bytes"
 	"encoding/binary"
 	"image"
-	"image/color"
 	"image/png"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"timestamps/internal/ring"
 )
 
-type rgba struct{ r, g, b, a float64 }
+const frac = 0.75
 
-// segDist is the distance from (px,py) to the segment (ax,ay)-(bx,by).
-func segDist(px, py, ax, ay, bx, by float64) float64 {
-	vx, vy := bx-ax, by-ay
-	t := math.Max(0, math.Min(1, ((px-ax)*vx+(py-ay)*vy)/(vx*vx+vy*vy)))
-	return math.Hypot(px-(ax+t*vx), py-(ay+t*vy))
-}
+func render(size int) *image.NRGBA { return ring.Draw(size, frac, ring.Color(frac)) }
 
-var (
-	rim   = rgba{0x1E, 0x29, 0x3B, 1} // dial rim and hands
-	dial  = rgba{0xFF, 0xFF, 0xFF, 1}
-	green = rgba{0x22, 0xC5, 0x5E, 1} // active time
-	red   = rgba{0xEF, 0x44, 0x44, 1} // away time
-)
-
-// sample draws a clock dial whose outer ring shows a day of activity:
-// a long green "active" arc and a shorter red "away" arc.
-func sample(x, y float64) rgba {
-	dx, dy := x-0.5, y-0.5
-	r := math.Hypot(dx, dy)
-	ang := math.Mod(math.Atan2(dx, -dy)*180/math.Pi+360, 360) // clockwise from 12 o'clock
-	switch {
-	case r > 0.49:
-		return rgba{}
-	case r > 0.445:
-		return rim
-	}
-	if r < 0.058 || segDist(x, y, 0.5, 0.5, 0.5, 0.23) < 0.034 {
-		return rim
-	}
-	h := 128 * math.Pi / 180
-	if segDist(x, y, 0.5, 0.5, 0.5+0.2*math.Sin(h), 0.5-0.2*math.Cos(h)) < 0.04 {
-		return rim
-	}
-	if r > 0.305 {
-		if ang > 4 && ang < 160 {
-			return green
-		}
-		if ang > 205 && ang < 282 {
-			return red
-		}
-	}
-	return dial
-}
-
-func render(size int) *image.NRGBA {
-	img := image.NewNRGBA(image.Rect(0, 0, size, size))
-	const ss = 6
-	for py := 0; py < size; py++ {
-		for px := 0; px < size; px++ {
-			var r, g, b, a float64
-			for sy := 0; sy < ss; sy++ {
-				for sx := 0; sx < ss; sx++ {
-					c := sample((float64(px)+(float64(sx)+0.5)/ss)/float64(size), (float64(py)+(float64(sy)+0.5)/ss)/float64(size))
-					r += c.r * c.a
-					g += c.g * c.a
-					b += c.b * c.a
-					a += c.a
-				}
-			}
-			n := float64(ss * ss)
-			if a > 0 {
-				img.SetNRGBA(px, py, color.NRGBA{uint8(r / a), uint8(g / a), uint8(b / a), uint8(math.Round(a / n * 255))})
-			}
-		}
-	}
-	return img
-}
-
-// renderMac draws the logo the macOS way: the dial at the size of the
-// system's round icons (about 80% of the canvas) on a soft shadow.
-func renderMac(size int) *image.NRGBA {
-	img := image.NewNRGBA(image.Rect(0, 0, size, size))
-	const scale = 0.82
-	ss := 6
-	if size >= 256 {
-		ss = 3
-	}
-	radius := 0.49 * scale
-	for py := 0; py < size; py++ {
-		for px := 0; px < size; px++ {
-			var r, g, b, a float64
-			for sy := 0; sy < ss; sy++ {
-				for sx := 0; sx < ss; sx++ {
-					u := (float64(px) + (float64(sx)+0.5)/float64(ss)) / float64(size)
-					v := (float64(py) + (float64(sy)+0.5)/float64(ss)) / float64(size)
-					c := sample((u-0.5)/scale+0.5, (v-0.5)/scale+0.5)
-					r += c.r * c.a
-					g += c.g * c.a
-					b += c.b * c.a
-					a += c.a
-				}
-			}
-			n := float64(ss * ss)
-			da := a / n
-			// The shadow falls a little below the dial and fades out.
-			u, v := (float64(px)+0.5)/float64(size), (float64(py)+0.5)/float64(size)
-			d := math.Hypot(u-0.5, v-0.5-0.012) - radius
-			sa := 0.0
-			if d < 0.03 {
-				sa = 0.3 * math.Pow(math.Min(1, 1-d/0.03), 2)
-			}
-			oa := da + (1-da)*sa
-			if oa <= 0 {
-				continue
-			}
-			k := 0.0
-			if a > 0 {
-				k = da / oa / a // dial colour weight per accumulated sample
-			}
-			img.SetNRGBA(px, py, color.NRGBA{uint8(math.Round(r * k)), uint8(math.Round(g * k)), uint8(math.Round(b * k)), uint8(math.Round(oa * 255))})
-		}
-	}
-	return img
-}
-
-// icns packs PNG renderings into an Apple icon file.
+// icns packs PNG renderings of the ring, laid out as a macOS icon, into an
+// Apple icon file.
 func icns() []byte {
 	pngs := map[int][]byte{}
 	for _, s := range []int{16, 32, 64, 128, 256, 512, 1024} {
-		pngs[s] = pngBytes(renderMac(s))
+		pngs[s] = pngBytes(ring.DrawIcon(s, frac, ring.Color(frac)))
 	}
 	var body bytes.Buffer
 	for _, e := range []struct {

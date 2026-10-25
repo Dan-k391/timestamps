@@ -1,7 +1,7 @@
 // App shell: sidebar, routing, live status, stopwatch, away prompt, theme.
 import { h, clear, icon, button, modal, tagInput, toast, appIcon, dropdown, toggle } from './ui.js';
 import { t, setLang } from './i18n.js';
-import { configure, dur, clock, today } from './fmt.js';
+import { configure, dur, clock, today, resetColors } from './fmt.js';
 import * as api from './api.js';
 import { state, refreshLive, loadTags, onChange } from './state.js';
 import { go, parse, onRoute } from './router.js';
@@ -28,18 +28,89 @@ const VIEWS = {
 
 let current = null;
 let currentKey = '';
+let lastRoute = null;
 const viewEl = document.getElementById('view');
 const nav = document.getElementById('nav');
 const liveEl = document.getElementById('live');
 const timerEl = document.getElementById('timer');
 
+// Light or dark mode, and the color theme picked for that mode (classic =
+// none). A change redraws the current view with the new colors.
 function applyTheme() {
-  const pref = (state.settings && state.settings.theme) || 'system';
+  const s = state.settings || {};
+  const pref = s.theme || 'system';
   const dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const root = document.documentElement;
+  const palette = (dark ? s.darkTheme : s.lightTheme) || 'classic';
+  const before = root.dataset.theme + '/' + (root.dataset.palette || 'classic');
+  root.dataset.theme = dark ? 'dark' : 'light';
+  if (palette === 'classic') delete root.dataset.palette; else root.dataset.palette = palette;
+  try { localStorage.setItem('tsPalette', JSON.stringify({ light: s.lightTheme || 'classic', dark: s.darkTheme || 'classic' })); } catch (_) {}
   if (window.tsSetDark) window.tsSetDark(dark);
-  current && current.theme && current.theme();
+  if (before === root.dataset.theme + '/' + palette) return;
+  resetColors();
+  if (current && current.theme) current.theme();
+  else if (lastRoute) { currentKey = ''; show(lastRoute); }
 }
+
+// The app's logo: a ring that fills clockwise once a day and turns from
+// green through yellow and orange to red, gray while paused (the same as the
+// tray icon). Drawn in the sidebar and as the page icon.
+const RING = [[0, [63, 178, 127]], [0.45, [242, 197, 61]], [0.75, [245, 146, 47]], [1, [229, 72, 77]]];
+function ringColor(f) {
+  for (let i = 1; i < RING.length; i++) {
+    const [b, cb] = RING[i], [a, ca] = RING[i - 1];
+    if (f <= b) return `rgb(${ca.map((v, k) => Math.round(v + (cb[k] - v) * ((f - a) / (b - a)))).join(',')})`;
+  }
+  return 'rgb(229,72,77)';
+}
+let logoKey = '';
+function drawLogo() {
+  const d = new Date();
+  const f = Math.floor((d.getHours() * 60 + d.getMinutes()) / 5) / 288; // 5-minute steps
+  const paused = state.live && state.live.state === 'paused';
+  const key = f + '/' + paused;
+  if (key === logoKey) return;
+  logoKey = key;
+  const color = paused ? 'rgb(139,147,167)' : ringColor(f);
+  const track = 'rgba(128,134,148,0.43)';
+  const r = 10.6, c = 2 * Math.PI * r;
+  const host = document.getElementById('brand-logo');
+  if (host) {
+    host.innerHTML = `<svg viewBox="0 0 28 28"><circle cx="14" cy="14" r="${r}" fill="none" stroke="${track}" stroke-width="4.8"/>` +
+      (f > 0 ? `<circle cx="14" cy="14" r="${r}" fill="none" stroke="${color}" stroke-width="4.8" stroke-linecap="round" stroke-dasharray="${(f * c).toFixed(2)} ${c.toFixed(2)}" transform="rotate(-90 14 14)"/>` : '') + '</svg>';
+  }
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  g.lineWidth = 11;
+  g.strokeStyle = track;
+  g.beginPath(); g.arc(32, 32, 24, 0, 2 * Math.PI); g.stroke();
+  if (f > 0) { g.strokeStyle = color; g.lineCap = 'round'; g.beginPath(); g.arc(32, 32, 24, -Math.PI / 2, -Math.PI / 2 + f * 2 * Math.PI); g.stroke(); }
+  const link = document.querySelector('link[rel="icon"]');
+  if (link) link.href = cv.toDataURL('image/png');
+}
+setInterval(drawLogo, 30000);
+
+// Easter egg: typing "dkhd" (outside a text box) switches the dkhd theme on
+// for light and dark mode, and again switches back to the themes before it.
+let eggKeys = '';
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.altKey || e.metaKey || e.key.length !== 1 || /INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName)) return;
+  eggKeys = (eggKeys + e.key.toLowerCase()).slice(-4);
+  if (eggKeys !== 'dkhd' || !state.settings) return;
+  eggKeys = '';
+  const s = state.settings;
+  let prev = null;
+  try { prev = JSON.parse(localStorage.getItem('tsEggPrev') || 'null'); } catch (_) {}
+  const on = s.lightTheme !== 'dkhd' || s.darkTheme !== 'dkhd';
+  if (on) { try { localStorage.setItem('tsEggPrev', JSON.stringify({ light: s.lightTheme, dark: s.darkTheme })); localStorage.setItem('tsEgg', '1'); } catch (_) {} }
+  const next = on ? { lightTheme: 'dkhd', darkTheme: 'dkhd' } : { lightTheme: (prev && prev.light) || 'classic', darkTheme: (prev && prev.dark) || 'classic' };
+  Object.assign(s, next);
+  applyTheme();
+  api.post('settings', s).then((r) => { state.settings = r; }).catch(() => {});
+  toast(on ? 'dkhd ✿' : t('Theme restored'), { timeout: 1600 });
+});
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
 function resolveLang(s) {
@@ -59,6 +130,7 @@ function renderNav(active) {
 }
 
 function show(route) {
+  lastRoute = route;
   const v = VIEWS[route.view] ? route.view : 'day';
   const key = v + '/' + route.arg + '?' + JSON.stringify(route.params);
   if (key === currentKey) return;
@@ -224,11 +296,12 @@ async function boot() {
   configure(settings);
   applyTheme();
   document.getElementById('brand-name').textContent = 'Timestamps';
+  drawLogo();
   await Promise.all([refreshLive(), loadTags()]);
   renderLive();
   renderTimers();
   onChange((what) => {
-    if (what === 'live') { renderLive(); renderTimers(); }
+    if (what === 'live') { renderLive(); renderTimers(); drawLogo(); }
     if (what === 'settings') { configure(state.settings); applyTheme(); }
   });
   onRoute(show);

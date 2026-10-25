@@ -50,11 +50,45 @@ export function mount(el, params) {
   };
   const sw = (key) => toggle(!!s[key], (v) => save({ [key]: v }));
 
+  // Color theme cards for one mode; each card shows the theme in miniature.
+  const THEMES = {
+    dark: [['classic', 'Classic'], ['onedark', 'One Dark Pro'], ['dracula', 'Dracula'], ['tokyonight', 'Tokyo Night'], ['githubdark', 'GitHub Dark'], ['gruvboxdark', 'Gruvbox Dark']],
+    light: [['classic', 'Classic'], ['githublight', 'GitHub Light'], ['onelight', 'Atom One Light'], ['solarized', 'Solarized Light'], ['latte', 'Catppuccin Latte'], ['rosepinedawn', 'Ros\u00e9 Pine Dawn']],
+  };
+  const CLASSIC_CATS = ['#5b8def', '#e0699a', '#3fb27f', '#e2b847', '#9a6bdf', '#e5484d'];
+  function themePicker(mode, label, hint) {
+    const key = mode === 'dark' ? 'darkTheme' : 'lightTheme';
+    let egg = false;
+    try { egg = localStorage.getItem('tsEgg') === '1'; } catch (_) {}
+    const list = THEMES[mode].concat(egg || s[key] === 'dkhd' ? [['dkhd', 'dkhd']] : []);
+    const cur = s[key] || 'classic';
+    const pick = (id) => {
+      save({ [key]: id });
+      state.settings = { ...state.settings, [key]: id };
+      emit('settings'); // applies it now; the save follows
+    };
+    const card = ([id, name]) => h('button', {
+      type: 'button', class: 'tp' + (id === cur ? ' on' : ''), title: name, 'aria-pressed': String(id === cur),
+      dataset: id === 'classic' ? { theme: mode } : { theme: mode, palette: id }, onClick: () => pick(id),
+    },
+      h('span', { class: 'tp-prev' },
+        h('span', { class: 'tp-side' }, h('i'), h('i', { class: 'on' }), h('i')),
+        h('span', { class: 'tp-main' },
+          h('span', { class: 'tp-lane' }, h('i', { class: 'a', style: { width: '36%' } }), h('i', { class: 'w', style: { width: '16%' } }), h('i', { class: 'a', style: { width: '30%' } })),
+          h('span', { class: 'tp-cats' }, CLASSIC_CATS.map((c, i) => h('i', { style: { background: `var(--cat-${i}, ${c})` } }))),
+          h('span', { class: 'tp-line' }), h('span', { class: 'tp-line s' }))),
+      h('span', { class: 'tp-name' }, id === 'classic' ? t('Classic') : name));
+    return h('div', { class: 'tp-block' }, h('div', { class: 'set-label' }, h('div', null, label), h('div', { class: 'hint' }, hint)),
+      h('div', { class: 'tp-grid' }, list.map(card)));
+  }
+
   function general() {
     body.append(
       group(t('Appearance'),
         row(t('Language'), select([['auto', t('System default')], ['en', 'English'], ['zh', '简体中文']], s.language, (v) => { save({ language: v }); setTimeout(() => location.reload(), 600); })),
         row(t('Theme'), select([['system', t('System')], ['light', t('Light')], ['dark', t('Dark')]], s.theme, (v) => save({ theme: v }))),
+        themePicker('dark', t('Dark theme'), t('Used when the app is dark.')),
+        themePicker('light', t('Light theme'), t('Used when the app is light.')),
         row(t('Duration format'), select([['hm', '1h 05m'], ['clock', '1:05:00'], ['decimal', '1.08 h']], s.durationFormat, (v) => save({ durationFormat: v }))),
         row(t('Clock'), select([['24', t('24-hour')], ['12', t('12-hour')]], s.clock24 ? '24' : '12', (v) => save({ clock24: v === '24' }))),
         row(t('First day of the week'), select([[1, t('Monday')], [0, t('Sunday')]], s.weekStart, (v) => save({ weekStart: +v })))),

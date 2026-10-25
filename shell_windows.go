@@ -13,6 +13,7 @@ import (
 	ole "github.com/go-ole/go-ole"
 	webview2 "github.com/jchv/go-webview2"
 
+	"timestamps/internal/ring"
 	"timestamps/internal/store"
 	"timestamps/internal/win"
 )
@@ -24,14 +25,20 @@ type native struct {
 	shell   *win.Shell
 	view    webview2.WebView
 	hwnd    uintptr
+	opening bool // the window is being created (WebView2 runs messages meanwhile)
 	iconBig uintptr
 	iconSm  uintptr
+	ringKey string  // what the ring icon shows now
+	ringSm  uintptr // ring icons (tray and window small, window big), UI thread only
+	ringBig uintptr
 }
 
 // platformText overrides shellText where Windows needs its own words.
 var platformText = map[string]map[string]string{}
 
 func systemChinese() bool { return win.UILanguage() == 0x04 }
+
+func systemDark() bool { return win.SystemDarkMode() }
 
 func (a *App) notify(title, text string) { a.shell.Notify(title, text) }
 func (a *App) setTip(tip string)         { a.shell.SetTip(tip) }
@@ -75,13 +82,24 @@ func (a *App) openWindow(route string) {
 		win.ShowWindowFront(a.hwnd)
 		return
 	}
+	if a.opening {
+		return // a click while the window is starting: it is on its way
+	}
+	a.opening = true
+	// The library shows the window at once, so create it at its final,
+	// DPI-scaled size, and have WebView2 start in the page's background
+	// color instead of white.
+	dpi := win.SystemDPI()
+	ww, wh := win.FitScreen(1440*dpi/96, 900*dpi/96)
+	os.Setenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF"+a.windowBackground())
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		DataPath:  filepath.Join(a.dataDir, "webview"),
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
-			Title: "Timestamps", Width: 1440, Height: 900, IconId: 1, Center: true,
+			Title: "Timestamps", Width: uint(ww), Height: uint(wh), IconId: 1, Center: true,
 		},
 	})
+	a.opening = false
 	if w == nil {
 		// No WebView2 runtime: fall back to the default browser.
 		win.ShellOpen(a.srv.URL() + "#/" + route)
@@ -89,10 +107,9 @@ func (a *App) openWindow(route string) {
 	}
 	a.view = w
 	a.hwnd = uintptr(w.Window())
-	dpi := win.WindowDPI(a.hwnd)
-	win.PlaceWindow(a.hwnd, 1440*dpi/96, 900*dpi/96, false)
 	w.SetSize(960*dpi/96, 620*dpi/96, webview2.HintMin)
-	win.SetWindowIcon(a.hwnd, a.iconBig, a.iconSm)
+	big, small := a.windowIcons()
+	win.SetWindowIcon(a.hwnd, big, small)
 	win.SetDarkTitleBar(a.hwnd, a.prefersDark())
 	w.Bind("tsSetDark", func(dark bool) { win.SetDarkTitleBar(a.hwnd, dark) })
 	w.Bind("tsQuit", func() { a.quit() })
@@ -114,14 +131,40 @@ func (a *App) openWindow(route string) {
 	}
 }
 
-func (a *App) prefersDark() bool {
-	switch a.t.Settings().Theme {
-	case "dark":
-		return true
-	case "light":
-		return false
+// updateRing redraws the app's icon, a ring that fills once a day, in the
+// tray and on the window when it would look different: every 5 minutes, or
+// when tracking pauses or resumes.
+func (a *App) updateRing(paused bool) {
+	key, frac, c := ringNow(paused)
+	if key == a.ringKey {
+		return
 	}
-	return win.SystemDarkMode()
+	a.ringKey = key
+	sm := win.IconFromImage(ring.Draw(win.SystemMetric(49), frac, c))
+	big := win.IconFromImage(ring.Draw(win.SystemMetric(11), frac, c))
+	if sm == 0 || big == 0 {
+		win.DestroyIcon(sm)
+		win.DestroyIcon(big)
+		return
+	}
+	a.shell.Invoke(func() {
+		oldSm, oldBig := a.ringSm, a.ringBig
+		a.ringSm, a.ringBig = sm, big
+		a.shell.SetIcon(sm)
+		if a.hwnd != 0 {
+			win.SetWindowIcon(a.hwnd, big, sm)
+		}
+		win.DestroyIcon(oldSm)
+		win.DestroyIcon(oldBig)
+	})
+}
+
+// windowIcons are the icons for the app window: the day ring once drawn.
+func (a *App) windowIcons() (big, small uintptr) {
+	if a.ringBig != 0 {
+		return a.ringBig, a.ringSm
+	}
+	return a.iconBig, a.iconSm
 }
 
 func (a *App) quit() {

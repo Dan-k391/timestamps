@@ -1,7 +1,7 @@
 // Statistics: totals, activity by day, heatmap, top lists and drill-down.
 import { h, clear, icon, button, appIcon, kindIcon, empty, dropdown, toast } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, clock, hex, hashColor, fmtDate, fmtDateLong, pct, weekStart, hourLabel, today, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
+import { dur, clock, hex, hashColor, mutedColor, fmtDate, fmtDateLong, pct, weekStart, hourLabel, today, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
 import * as api from '../api.js';
 import { columns, heatmap } from '../charts.js';
 import { rangeBar, resolve } from '../range.js';
@@ -112,7 +112,7 @@ export function mount(el, params) {
     body.append(h('div', { class: 'grid-2' },
       listCard(t('Applications'), 'app', d.apps, (a, max, total) => row(appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 18), a.name, null, a.secs, max, total, hex(a.color),
         () => detail('app', a.name, { id: a.id }, from, to, appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 22)))),
-      listCard(t('Websites'), 'globe', d.sites, (s, max, total) => row(kindIcon(2, s.key, 18), s.key, null, s.secs, max, total, hashColor(s.key),
+      listCard(t('Websites'), 'globe', d.sites, (s, max, total) => row(kindIcon(2, s.key, 18), s.key, null, s.secs, max, total, s.color ? hex(s.color) : mutedColor(s.key),
         () => detail('site', s.key, { key: s.key }, from, to, kindIcon(2, s.key, 22)))),
       listCard(t('Files'), 'file', d.files, (f, max, total) => row(kindIcon(1, f.key, 18), f.name, dirName(f.key), f.secs, max, total, hashColor(f.name),
         () => detail('file', f.name, { id: f.id, path: f.key }, from, to, kindIcon(1, f.key, 22)))),

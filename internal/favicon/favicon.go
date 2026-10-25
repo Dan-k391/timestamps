@@ -51,6 +51,9 @@ type Finder struct {
 
 	sem    chan struct{} // limits concurrent downloads
 	client *http.Client
+
+	// OnFound is called after a website's icon was found and stored.
+	OnFound func()
 }
 
 type cache struct {
@@ -117,6 +120,9 @@ func (f *Finder) Icon(domain string) []byte {
 		b = f.fromSite(d)
 	}
 	f.store.SetSiteIcon(d, b, time.Now().Unix())
+	if b != nil && f.OnFound != nil {
+		f.OnFound()
+	}
 	return b
 }
 

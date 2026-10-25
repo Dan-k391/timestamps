@@ -111,17 +111,31 @@ export function pct(part, total) {
   return (p < 1 && p > 0 ? p.toFixed(1) : Math.round(p)) + '%';
 }
 
-// Deterministic colours for keys without a stored colour.
+// Deterministic colours for keys without a stored colour: one of the color
+// theme's ten (--cat-0..9), or a hue from the key in the classic look.
 const colorCache = new Map();
+let themeColors = null;
+export function resetColors() { colorCache.clear(); themeColors = null; }
 export function hashColor(key) {
   let c = colorCache.get(key);
   if (c) return c;
   let h = 2166136261;
   for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
   h >>>= 0;
-  c = `hsl(${h % 360} ${55 + (h >> 9) % 20}% ${50 + (h >> 17) % 12}%)`;
+  if (!themeColors) {
+    const cs = getComputedStyle(document.documentElement);
+    themeColors = Array.from({ length: 10 }, (_, i) => cs.getPropertyValue('--cat-' + i).trim()).filter(Boolean);
+  }
+  c = themeColors.length ? themeColors[h % themeColors.length] : `hsl(${h % 360} ${55 + (h >> 9) % 20}% ${50 + (h >> 17) % 12}%)`;
   colorCache.set(key, c);
   return c;
+}
+
+/** A quiet color for things without an icon to take a color from. */
+export function mutedColor(key) {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return `hsl(${(h >>> 0) % 360} 16% 58%)`;
 }
 
 export const hex = (c) => (c ? (c.startsWith('#') || c.startsWith('hsl') ? c : '#' + c) : '#8b93a7');

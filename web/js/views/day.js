@@ -1,7 +1,7 @@
 // Day view: timeline lanes, live updates, tagging and summaries.
 import { h, clear, icon, button, appIcon, kindIcon, siteHost, wheelScrollsX, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser, baseDomain } from '../fmt.js';
+import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, mutedColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser, baseDomain } from '../fmt.js';
 import * as api from '../api.js';
 import { Timeline } from '../timeline.js';
 import { ActivityList } from '../activitylist.js';
@@ -208,7 +208,7 @@ export function mount(el, params) {
       }
       const c = hashColor(doc.grp || doc.key);
       const site = doc.kind === 2 ? (mergeSub ? baseDomain(doc.grp) : doc.grp) : '';
-      const sc = doc.kind === 2 ? hashColor(site) : c;
+      const sc = doc.kind === 2 ? siteColor(site) : c;
       const host = doc.kind === 2 ? siteHost(site) : '';
       return { s, e, color: sc, ink: inkFor(sc), label: doc.kind === 2 ? site : doc.name, group: doc.kind === 2 ? 'w' + site : 'f' + doc.key, icon: host ? api.siteIconURL(host) : null, search: doc.key + ' ' + doc.name + ' ' + page, kind: 'doc', doc, page, site, appId: a };
     });
@@ -223,6 +223,12 @@ export function mount(el, params) {
       { id: 'apps', label: t('Applications'), icon: 'app', h: 62, segs: apps, style: 'bar' },
       { id: 'docs', label: t('Documents'), icon: 'file', h: 50, segs: docs, style: 'bar' });
     if (d.shots.length) lanes.push({ id: 'shots', label: t('Screenshots'), icon: 'image', h: 84, style: 'shots', segs: d.shots.map((ts) => ({ s: ts, e: ts + 1, kind: 'shot', ts, thumb: api.shotURL(ts, true) })) });
+  }
+
+  // A website's color comes from its icon; sites without one get a quiet gray.
+  function siteColor(site) {
+    const c = data && data.siteColors && data.siteColors[site];
+    return c ? hex(c) : mutedColor(site);
   }
 
   // Returns seg -> cleaned page title for browser windows. A trailing
@@ -487,7 +493,7 @@ export function mount(el, params) {
         const open = expanded.has(key);
         const row = h('div', { class: 'row' + (open ? ' open' : ''), ...hoverHighlight((sg) => sg.kind === 'doc' ? sg.doc.kind === 2 && sg.site === s.grp : null) },
           h('button', { class: 'row-main', type: 'button', onClick: () => { open ? expanded.delete(key) : expanded.add(key); renderSummaries(); } },
-            kindIcon(2, s.grp, 18), h('span', { class: 'row-name' }, s.grp), bar(s.secs, smax, hashColor(s.grp)), h('span', { class: 'row-dur' }, dur(s.secs))));
+            kindIcon(2, s.grp, 18), h('span', { class: 'row-name' }, s.grp), bar(s.secs, smax, siteColor(s.grp)), h('span', { class: 'row-dur' }, dur(s.secs))));
         if (open) {
           const pages = [...s.pages.values()].sort((x, y) => y.secs - x.secs);
           row.append(h('div', { class: 'sub-list' }, pages.slice(0, 80).map((p) => h('div', { class: 'sub-row', title: p.doc.key },
@@ -684,12 +690,12 @@ export function mount(el, params) {
   return {
     refresh(ev) {
       if (!ev || ev.type === 'settings') { load(); return; }
-      if (['seg', 'tags', 'shot', 'state', 'away', 'timers'].includes(ev.type) && (isToday() || ev.type === 'tags')) {
+      if (['seg', 'tags', 'shot', 'state', 'away', 'timers', 'icons'].includes(ev.type) && (isToday() || ev.type === 'tags' || ev.type === 'icons')) {
         clearTimeout(reloadTimer);
-        reloadTimer = setTimeout(() => load(), ev.type === 'seg' ? 1200 : 150);
+        reloadTimer = setTimeout(() => load(), ev.type === 'seg' ? 1200 : ev.type === 'icons' ? 1500 : 150);
       }
     },
-    theme() { if (data) { buildLanes(); tl.setData({ from: data.from, to: data.to, lanes, now: tl.now }); list.setLanes(lanes, data.from, data.to); } },
+    theme() { if (data) { buildLanes(); tl.setData({ from: data.from, to: data.to, lanes, now: tl.now }); list.setLanes(lanes, data.from, data.to); renderSummaries(); } },
     destroy() {
       document.removeEventListener('keydown', onKey);
       scroller && scroller.removeEventListener('scroll', onScroll);

@@ -218,6 +218,31 @@ func SetWindowIcon(hwnd, big, small uintptr) {
 	pSendMessageW.Call(hwnd, WM_SETICON, 0, small)
 }
 
+// FitScreen shrinks a window size to fit the primary screen.
+func FitScreen(w, h int) (int, int) {
+	sw, sh := SystemMetric(0), SystemMetric(1)
+	if w > sw {
+		w = sw
+	}
+	if h > sh-40 {
+		h = sh - 40
+	}
+	return w, h
+}
+
+var pGetDpiForSystem = user32.NewProc("GetDpiForSystem")
+
+// SystemDPI returns the DPI of the primary screen (96 = 100%).
+func SystemDPI() int {
+	if pGetDpiForSystem.Find() != nil {
+		return 96
+	}
+	if r, _, _ := pGetDpiForSystem.Call(); r != 0 {
+		return int(r)
+	}
+	return 96
+}
+
 // LoadAppIcon loads icon resource #1 from the executable at the given size.
 func LoadAppIcon(size int) uintptr {
 	r, _, _ := pLoadImageW.Call(ModuleHandle(), 1, 1, uintptr(size), uintptr(size), 0)
@@ -250,13 +275,8 @@ func WindowDPI(hwnd uintptr) int {
 
 // PlaceWindow moves and sizes a window, centring it on the primary monitor.
 func PlaceWindow(hwnd uintptr, w, h int, maximize bool) {
+	w, h = FitScreen(w, h)
 	sw, sh := SystemMetric(0), SystemMetric(1)
-	if w > sw {
-		w = sw
-	}
-	if h > sh-40 {
-		h = sh - 40
-	}
 	pSetWindowPos.Call(hwnd, 0, uintptr((sw-w)/2), uintptr((sh-h)/2), uintptr(w), uintptr(h), 0x0004|0x0010)
 	if maximize {
 		pShowWindow.Call(hwnd, 3)
