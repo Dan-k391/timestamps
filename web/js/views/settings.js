@@ -131,7 +131,7 @@ export function mount(el, params) {
           button(t('Open'), { small: true, variant: 'ghost', icon: 'external', onClick: () => api.post('open', { target: info.shotsDir }) }),
           info.shotsDir.toLowerCase() !== info.shotsDefault.toLowerCase() ? button(t('Default'), { small: true, variant: 'ghost', title: info.shotsDefault, onClick: () => moveShots('') }) : null),
         t('New screenshots are saved here. Changing it moves the existing ones.')),
-        row(t('Space used'), h('span', null, bytes(info.shotsSize) + ' · ' + info.db.Shots + ' ' + t('screenshots'))),
+        row(t('Space used'), h('span', null, bytes(info.shotsSize + (info.thumbsSize || 0)) + ' · ' + info.db.Shots + ' ' + t('screenshots')), t('Thumbnails are kept in the data folder.')),
         row(t('Gallery'), button(t('View screenshots'), { small: true, icon: 'image', onClick: () => go('screenshots/' + today()) }))));
   }
 

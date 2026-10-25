@@ -119,6 +119,7 @@ const zh = {
   "Save screenshots in {0}? The {1} existing screenshots ({2}) are moved there.": "将截图保存到 {0}？已有的 {1} 张截图（{2}）会移到那里。",
   "Move": "移动",
   "Moving screenshots…": "正在移动截图…",
+  "Thumbnails are kept in the data folder.": "缩略图保存在数据文件夹中。",
   "Screenshots are now saved in {0}": "截图现在保存在 {0}",
   "New row": "新的一行",
   "Side by side": "并排放置",

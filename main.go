@@ -62,7 +62,8 @@ func main() {
 	if settings.ShotsDir != "" {
 		shotsDir = settings.ShotsDir
 	}
-	t := tracker.New(db, shotsDir)
+	t := tracker.New(db, shotsDir, filepath.Join(dataDir, "thumbs"))
+	go t.Shots.MoveOldThumbs()
 	var webFS fs.FS = web.FS
 	if dir := os.Getenv("TIMESTAMPS_WEB_DIR"); dir != "" {
 		webFS = os.DirFS(dir) // development: serve the UI from disk

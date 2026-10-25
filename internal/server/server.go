@@ -763,7 +763,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 		}
 		writeJSON(w, r, map[string]any{
 			"version": Version, "dataDir": s.DataDir, "extDir": s.ExtDir, "dbSize": size, "db": s.DB.Info(),
-			"manictime": mt, "ext": s.T.Ext.Connected(), "url": s.URL(), "shotsDir": s.T.Shots.Dir(), "shotsSize": dirSize(s.T.Shots.Dir()),
+			"manictime": mt, "ext": s.T.Ext.Connected(), "url": s.URL(), "shotsDir": s.T.Shots.Dir(), "shotsSize": dirSize(s.T.Shots.Dir()), "thumbsSize": dirSize(s.T.Shots.ThumbDir()),
 			"shotsDefault": s.defaultShotsDir(),
 			"lastBackup":   s.DB.Meta("backup.last"),
 		})
@@ -794,10 +794,17 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 			fail(w, err)
 			return
 		}
+		var shots []int64
+		for _, tl := range req.Timelines {
+			if tl == "shots" {
+				shots = s.DB.ShotsBetween(a, b)
+			}
+		}
 		if err := s.DB.DeleteRange(a, b, req.Timelines); err != nil {
 			fail(w, err)
 			return
 		}
+		s.T.Shots.RemoveFiles(shots)
 		s.T.Emit("tags")
 		writeJSON(w, r, map[string]any{"ok": true})
 

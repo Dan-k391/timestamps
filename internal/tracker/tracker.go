@@ -102,12 +102,12 @@ type Tracker struct {
 }
 
 // New creates a tracker; call Start to begin sampling.
-func New(db *store.DB, shotsDir string) *Tracker {
+func New(db *store.DB, shotsDir, thumbsDir string) *Tracker {
 	t := &Tracker{
 		db: db, docs: newDocWorker(), Ext: NewExtHub(), usageState: -1, procs: map[uint32]proc{}, iconFixed: map[int64]bool{},
 		subs: map[chan Event]bool{}, stop: make(chan struct{}), done: make(chan struct{}), state: "off",
 	}
-	t.Shots = NewShooter(db, shotsDir)
+	t.Shots = NewShooter(db, shotsDir, thumbsDir)
 	t.Shots.OnShot = func(ts int64) { t.emit("shot") }
 	s := db.Settings()
 	t.settings.Store(&s)

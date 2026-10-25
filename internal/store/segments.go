@@ -187,6 +187,22 @@ func (db *DB) ShotsBefore(ts int64) []int64 {
 	return out
 }
 
+// ShotsBetween lists screenshot timestamps in [a, b).
+func (db *DB) ShotsBetween(a, b int64) []int64 {
+	rows, err := db.sql.Query("SELECT ts FROM shot WHERE ts >= ? AND ts < ? ORDER BY ts", a, b)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var t int64
+		rows.Scan(&t)
+		out = append(out, t)
+	}
+	return out
+}
+
 // DeleteShots removes screenshot rows.
 func (db *DB) DeleteShots(ts []int64) {
 	tx, err := db.sql.Begin()
