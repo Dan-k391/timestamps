@@ -57,12 +57,36 @@ func TestSystemProxy(t *testing.T) {
 	}
 }
 
+func TestScutilProxy(t *testing.T) {
+	out := `<dictionary> {
+  ExceptionsList : <array> {
+    0 : *.local
+    1 : 169.254/16
+  }
+  ExcludeSimpleHostnames : 1
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 0
+  HTTPSPort : 8080
+  HTTPSProxy : proxy.example.com
+  SOCKSEnable : 1
+  SOCKSPort : 7891
+  SOCKSProxy : 127.0.0.1
+}`
+	server, override := scutilProxy(out)
+	if server != "http=127.0.0.1:7890" || override != "*.local;169.254/16;<local>" {
+		t.Fatalf("scutilProxy = %q, %q", server, override)
+	}
+	if server, _ := scutilProxy("<dictionary> {\n  HTTPEnable : 0\n}"); server != "" {
+		t.Fatalf("disabled proxy gave %q", server)
+	}
+}
+
 // A fake Edge profile with icons for a site's pages and a subdomain.
 func TestFromBrowsers(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("LOCALAPPDATA", root)
-	t.Setenv("APPDATA", filepath.Join(root, "roaming"))
-	dir := filepath.Join(root, `Microsoft\Edge\User Data\Default`)
+	dir := fakeProfile(t, root)
 	os.MkdirAll(dir, 0o755)
 	db, err := sql.Open("sqlite3", filepath.Join(dir, "Favicons"))
 	if err != nil {

@@ -1,0 +1,2 @@
+/* The reason macOS shows when Timestamps first asks a browser for its tab. */
+"NSAppleEventsUsageDescription" = "Timestamps 会向浏览器询问当前标签页的地址，以记录您访问的网站。数据只保留在这台 Mac 上。";

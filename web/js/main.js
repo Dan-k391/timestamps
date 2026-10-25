@@ -13,6 +13,7 @@ import * as searchView from './views/search.js';
 import * as rulesView from './views/rules.js';
 import * as shotsView from './views/shots.js';
 import * as settingsView from './views/settings.js';
+import { mod } from './platform.js';
 
 const VIEWS = {
   day: { mod: dayView, icon: 'day', label: 'Day view' },
@@ -247,7 +248,7 @@ async function boot() {
   setInterval(refreshLive, 20000);
 
   document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key.toLowerCase() === 'k') { e.preventDefault(); go('search'); }
+    if (mod(e) && e.key.toLowerCase() === 'k') { e.preventDefault(); go('search'); }
     if (e.key === 'F5' && parse().view !== 'day') e.preventDefault();
   });
   document.getElementById('collapse').onclick = () => {

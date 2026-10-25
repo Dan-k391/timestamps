@@ -1,21 +1,14 @@
-//go:build windows
-
 // Package tracker records computer usage, applications, documents and
 // screenshots, ManicTime style.
 package tracker
 
 import (
-	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	ole "github.com/go-ole/go-ole"
-
 	"timestamps/internal/store"
-	"timestamps/internal/win"
 )
 
 // Live describes what is being tracked right now.
@@ -111,7 +104,7 @@ func New(db *store.DB, shotsDir, thumbsDir string) *Tracker {
 	t.Shots.OnShot = func(ts int64) { t.emit("shot") }
 	s := db.Settings()
 	t.settings.Store(&s)
-	db.FixGenericNames(win.IsGenericAppName)
+	db.FixGenericNames(isGenericAppName)
 	return t
 }
 
@@ -251,34 +244,6 @@ func (t *Tracker) ResolveAway(s int64) {
 	t.mu.Unlock()
 }
 
-func (t *Tracker) audioLoop() {
-	runtime.LockOSThread()
-	ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
-	defer ole.CoUninitialize()
-	var m audioMeter
-	tk := time.NewTicker(time.Second)
-	defer tk.Stop()
-	n := 0
-	for {
-		select {
-		case <-t.stop:
-			m.reset()
-			return
-		case <-tk.C:
-		}
-		if !t.settings.Load().TreatSoundAsActive || win.IdleMillis() < 15000 {
-			continue
-		}
-		n++
-		if n%300 == 0 {
-			m.reset() // pick up default device changes
-		}
-		if m.peak() > 0.0005 {
-			t.lastSound.Store(time.Now().UnixMilli())
-		}
-	}
-}
-
 func inSchedule(st *store.Settings, now time.Time) bool {
 	if !st.ScheduleOn {
 		return true
@@ -301,36 +266,6 @@ func (t *Tracker) exclusion(st *store.Settings, exe string) string {
 		}
 	}
 	return ""
-}
-
-func (t *Tracker) procInfo(hwnd uintptr) (uint32, proc) {
-	pid := win.WindowPID(hwnd)
-	if p, ok := t.procs[pid]; ok && time.Since(p.at) < 30*time.Second {
-		return pid, p
-	}
-	path := win.ProcessPath(pid)
-	exe := strings.ToLower(filepath.Base(path))
-	if exe == "applicationframehost.exe" {
-		if _, cpid := win.ResolveUWP(hwnd, pid); cpid != 0 {
-			if cp := win.ProcessPath(cpid); cp != "" {
-				path = cp
-				exe = strings.ToLower(filepath.Base(cp))
-			}
-		}
-	}
-	p := proc{path: path, exe: exe, at: time.Now()}
-	if path != "" {
-		p.name = win.AppDisplayName(path)
-		p.framework = win.IsFrameworkExe(path)
-	}
-	if len(t.procs) > 512 {
-		t.procs = map[uint32]proc{}
-	}
-	// UWP hosts are resolved per window, so don't cache them by pid.
-	if !strings.EqualFold(filepath.Base(win.ProcessPath(pid)), "applicationframehost.exe") {
-		t.procs[pid] = p
-	}
-	return pid, p
 }
 
 func (t *Tracker) tick(now time.Time) {
@@ -368,7 +303,7 @@ func (t *Tracker) step(now time.Time, st *store.Settings) string {
 		return ""
 	}
 
-	idleMs := win.IdleMillis()
+	idleMs := idleMillis()
 	lastInput := now.Add(-time.Duration(idleMs) * time.Millisecond)
 	if st.TreatSoundAsActive {
 		if ls := time.UnixMilli(t.lastSound.Load()); ls.After(lastInput) {
@@ -376,7 +311,7 @@ func (t *Tracker) step(now time.Time, st *store.Settings) string {
 		}
 	}
 	t.idle = int64(now.Sub(lastInput) / time.Second)
-	locked := win.IsLocked()
+	locked := screenLocked()
 	awayAfter := time.Duration(st.AwayMinutes) * time.Minute
 	event := ""
 
@@ -436,16 +371,16 @@ func (t *Tracker) step(now time.Time, st *store.Settings) string {
 	}
 	t.state = "active"
 
-	hwnd := win.ForegroundWindow()
+	hwnd := foregroundWindow()
 	// Invisible foreground windows (e.g. hidden helper windows briefly
 	// activated by the shell) say nothing about what the user is doing.
-	if hwnd != 0 && !win.IsVisible(hwnd) {
+	if hwnd != 0 && !windowVisible(hwnd) {
 		hwnd = 0
 	}
 	if hwnd != 0 {
 		pid, p := t.procInfo(hwnd)
 		excl := t.exclusion(st, p.exe)
-		rawTitle := win.WindowText(hwnd)
+		rawTitle := windowTitle(hwnd)
 		title := rawTitle
 		if !st.TrackTitles || excl == "titles" || excl == "all" {
 			title = ""
@@ -504,22 +439,6 @@ func (t *Tracker) step(now time.Time, st *store.Settings) string {
 }
 
 func (t *Tracker) emitAsync(typ string) { go t.emit(typ) }
-
-// appIcon picks the icon for a new app: the window's for framework-based
-// apps, otherwise the executable's (falling back to the other one).
-func appIcon(path string, framework bool, hwnd uintptr) []byte {
-	if framework {
-		if ic := win.WindowIconPNG(hwnd); ic != nil {
-			return ic
-		}
-	}
-	if path != "" {
-		if ic := win.IconPNG(path, 48); ic != nil {
-			return ic
-		}
-	}
-	return win.WindowIconPNG(hwnd)
-}
 
 func (t *Tracker) setDoc(d Doc, nowS int64, st *store.Settings) bool {
 	if d.Kind == 0 {

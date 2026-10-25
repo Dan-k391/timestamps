@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -828,7 +829,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 			s.Host.Open(t)
 		} else if _, err := os.Stat(t); err == nil && filepath.IsAbs(t) {
 			// Never launch programs or scripts from here, only documents and folders.
-			if blockedExt[strings.ToLower(filepath.Ext(t))] {
+			if blockedExt[strings.ToLower(filepath.Ext(t))] || runnable(t) {
 				s.Host.Reveal(t)
 			} else {
 				s.Host.Open(t)
@@ -907,6 +908,21 @@ func init() {
 	for _, e := range strings.Fields(".exe .com .bat .cmd .ps1 .psm1 .vbs .vbe .js .jse .wsf .wsh .msi .msp .scr .hta .lnk .url .cpl .pif .reg .jar .appref-ms .application .msc .inf .sys .dll") {
 		blockedExt[e] = true
 	}
+	if runtime.GOOS == "darwin" {
+		for _, e := range strings.Fields(".app .command .tool .sh .zsh .bash .csh .py .rb .pl .pkg .mpkg .scpt .scptd .applescript .workflow .action .terminal .dylib .kext .prefpane .osax .webloc .inetloc .fileloc .dmg") {
+			blockedExt[e] = true
+		}
+	}
+}
+
+// runnable reports whether a file is an executable that opening would run
+// (macOS opens those in Terminal). Windows has no execute bits.
+func runnable(p string) bool {
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular() && st.Mode()&0o111 != 0
 }
 
 func (s *Server) defaultShotsDir() string { return filepath.Join(s.DataDir, "screenshots") }
@@ -914,7 +930,7 @@ func (s *Server) defaultShotsDir() string { return filepath.Join(s.DataDir, "scr
 // checkShotsDir accepts a folder for screenshots: an absolute path that is
 // not the current folder, not inside it or around it, and writable.
 func checkShotsDir(dir, cur string) error {
-	if !filepath.IsAbs(dir) || filepath.VolumeName(dir) == "" {
+	if !filepath.IsAbs(dir) || (runtime.GOOS == "windows" && filepath.VolumeName(dir) == "") {
 		return errors.New("choose a folder on a drive")
 	}
 	dir, cur = strings.ToLower(filepath.Clean(dir)), strings.ToLower(filepath.Clean(cur))

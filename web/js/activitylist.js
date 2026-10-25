@@ -5,6 +5,7 @@
 import { h, clear, icon, button, appIcon, kindIcon, segmented } from './ui.js';
 import { t } from './i18n.js';
 import { dur, durLong, clock, shortURL, baseName, dirName } from './fmt.js';
+import { keys } from './platform.js';
 
 const ROW = 34;
 
@@ -80,7 +81,7 @@ export class ActivityList {
     this.mergeBtn = h('label', { class: 'al-follow' }, this.mergeBox, this.mergeLabel);
     this.followBtn = h('label', { class: 'al-follow', title: t('Show only what is visible in the timeline') },
       h('input', { type: 'checkbox', checked: true, onChange: (e) => { this.follow = e.target.checked; this.refresh(true); } }), h('span', null, t('Follow timeline')));
-    this.filterInput = h('input', { class: 'input', placeholder: t('Filter…') + ' (Ctrl+F)', spellcheck: 'false' });
+    this.filterInput = h('input', { class: 'input', placeholder: t('Filter…') + ' (' + keys('Ctrl+F') + ')', spellcheck: 'false' });
     this.filterInput.addEventListener('input', () => { this.filter = this.filterInput.value.trim().toLowerCase(); this.opts.onFilter && this.opts.onFilter(this.filterInput.value.trim()); this.refresh(true); });
     this.filterInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this.setFilter(''); this.filterInput.blur(); e.stopPropagation(); } });
     this.bulk = h('div', { class: 'al-bulk', hidden: true });

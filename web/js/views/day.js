@@ -11,12 +11,18 @@ import { debounce } from '../ui.js';
 import { openTagDialog } from '../tagdialog.js';
 import { openLightbox } from './shots.js';
 import { go } from '../router.js';
+import { mod, keys, byOS } from '../platform.js';
 
 let clipboardTag = null;
 
 const BROWSERS = new Set(['chrome.exe', 'msedge.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'chromium.exe', 'browser.exe', '360se.exe',
   '360chrome.exe', 'qqbrowser.exe', 'sogouexplorer.exe', '2345explorer.exe', 'liebao.exe', 'centbrowser.exe', 'arc.exe', 'thorium.exe',
-  'iexplore.exe', 'firefox.exe', 'waterfox.exe', 'librewolf.exe', 'floorp.exe', 'zen.exe']);
+  'iexplore.exe', 'firefox.exe', 'waterfox.exe', 'librewolf.exe', 'floorp.exe', 'zen.exe',
+  // macOS apps are named after their bundle
+  'safari', 'safari technology preview', 'google chrome', 'google chrome beta', 'google chrome dev', 'google chrome canary', 'microsoft edge',
+  'microsoft edge beta', 'microsoft edge dev', 'microsoft edge canary', 'brave browser', 'brave browser beta', 'brave browser nightly', 'vivaldi',
+  'chromium', 'arc', 'opera', 'opera gx', 'thorium', 'orion', 'firefox', 'firefox developer edition', 'firefox nightly', 'waterfox', 'librewolf',
+  'floorp', 'zen', 'zen browser']);
 
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
@@ -492,7 +498,7 @@ export function mount(el, params) {
         return row;
       }), 'sites'));
     } else {
-      if (!c.files.length) dl.append(empty('file', t('No files'), t('Files are detected from the window title, Office/WPS, Explorer and Windows Recent items.')));
+      if (!c.files.length) dl.append(empty('file', t('No files'), t(byOS('Files are detected from the open document, the window title and Spotlight.', 'Files are detected from the window title, Office/WPS, Explorer and Windows Recent items.'))));
       const fmax = c.files.length ? c.files[0].secs : 1;
       dl.append(...listRows(c.files.map((f) => {
         const full = /^[a-zA-Z]:[\\/]|^\\\\/.test(f.doc.key);
@@ -577,14 +583,14 @@ export function mount(el, params) {
     const range = sel;
     if (range) {
       items.push({ label: t('Tag selection…'), icon: 'tag', hint: 'E', onClick: () => tagRange(range.s, range.e) });
-      if (clipboardTag) items.push({ label: t('Paste tag') + ` "${clipboardTag.tags}"`, icon: 'paste', hint: 'Ctrl+V', onClick: () => pasteTag(range.s, range.e) });
+      if (clipboardTag) items.push({ label: t('Paste tag') + ` "${clipboardTag.tags}"`, icon: 'paste', hint: keys('Ctrl+V'), onClick: () => pasteTag(range.s, range.e) });
       items.push({ label: t('Clear tags in selection'), icon: 'trash', hint: 'Del', onClick: clearTags });
       items.push({ label: t('Zoom to selection'), icon: 'zoomIn', onClick: () => tl.zoomTo(range.s, range.e) });
     }
     if (seg && seg.kind === 'tag') {
       items.push({ separator: true },
         { label: t('Edit tag…'), icon: 'edit', onClick: () => editTag(seg.tag) },
-        { label: t('Copy tag'), icon: 'copy', hint: 'Ctrl+C', onClick: () => { clipboardTag = { tags: seg.tag.tags, notes: seg.tag.notes, billable: seg.tag.billable }; toast(t('Tag copied')); } },
+        { label: t('Copy tag'), icon: 'copy', hint: keys('Ctrl+C'), onClick: () => { clipboardTag = { tags: seg.tag.tags, notes: seg.tag.notes, billable: seg.tag.billable }; toast(t('Tag copied')); } },
         hit.t ? { label: t('Split here'), icon: 'scissors', onClick: async () => { await api.post('tags/split', { id: seg.tag.id, at: Math.round(hit.t) }); load(); } } : null,
         { label: seg.tag.billable ? t('Mark not billable') : t('Mark billable'), icon: 'dollar', hint: 'B', onClick: async () => { await api.post('tags/update', { ...seg.tag, billable: !seg.tag.billable }); load(); } },
         { label: t('Delete tag'), icon: 'trash', danger: true, onClick: async () => { await api.post('tags/delete', { ids: [seg.tag.id] }); load(); } });
@@ -642,11 +648,11 @@ export function mount(el, params) {
   function onKey(e) {
     if (document.querySelector('.modal-wrap, .lightbox')) return;
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName);
-    if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); list.focusFilter(); return; }
+    if (mod(e) && e.key.toLowerCase() === 'f') { e.preventDefault(); list.focusFilter(); return; }
     if (typing) return;
     const k = e.key;
-    if (k === 'F7' || (k === 'ArrowLeft' && !e.ctrlKey)) { e.preventDefault(); go('day/' + addDays(date, -1)); }
-    else if (k === 'F8' || (k === 'ArrowRight' && !e.ctrlKey)) { e.preventDefault(); if (date < today()) go('day/' + addDays(date, 1)); }
+    if (k === 'F7' || (k === 'ArrowLeft' && !mod(e))) { e.preventDefault(); go('day/' + addDays(date, -1)); }
+    else if (k === 'F8' || (k === 'ArrowRight' && !mod(e))) { e.preventDefault(); if (date < today()) go('day/' + addDays(date, 1)); }
     else if (k === 'F5') { e.preventDefault(); if (date !== today()) go('day/' + today()); else load(); }
     else if ((k === 'e' || k === 'E' || k === 'Enter') && sel) { e.preventDefault(); tagRange(sel.s, sel.e); }
     else if ((k === 'Delete' || k === 'Backspace') && sel) { e.preventDefault(); clearTags(); }
@@ -654,10 +660,10 @@ export function mount(el, params) {
     else if (k === '+' || k === '=') tl.zoomBy(1 / 1.6);
     else if (k === '-' || k === '_') tl.zoomBy(1.6);
     else if (k === '0' || k === ')') tl.fit(e.shiftKey);
-    else if (e.ctrlKey && k.toLowerCase() === 'c' && sel) {
+    else if (mod(e) && k.toLowerCase() === 'c' && sel) {
       const tg = tagAt((sel.s + sel.e) / 2);
       if (tg) { clipboardTag = { tags: tg.tags, notes: tg.notes, billable: tg.billable }; toast(t('Tag copied')); }
-    } else if (e.ctrlKey && k.toLowerCase() === 'v' && sel) { e.preventDefault(); pasteTag(sel.s, sel.e); }
+    } else if (mod(e) && k.toLowerCase() === 'v' && sel) { e.preventDefault(); pasteTag(sel.s, sel.e); }
     else if ((k === 'b' || k === 'B') && sel) {
       const tg = tagAt((sel.s + sel.e) / 2);
       if (tg) api.post('tags/update', { ...tg, billable: !tg.billable }).then(load);

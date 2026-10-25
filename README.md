@@ -1,7 +1,7 @@
 # Timestamps
 
-A fast, private time tracker for Windows that does what ManicTime does, with a
-modern interface and a fraction of the memory. It records which applications,
+A fast, private time tracker for Windows and macOS that does what ManicTime
+does, with a modern interface and a fraction of the memory. It records which applications,
 documents and websites you use, detects when you are away, takes periodic
 screenshots, and lets you tag, report on and export your time. Everything
 stays in one local SQLite database.
@@ -15,6 +15,8 @@ Get `Timestamps-<version>-windows-x64.exe` and, optionally, the browser
 extension zips from [Releases](https://github.com/ZJJ-2785/timestamps/releases).
 Nothing to install: run the exe. It isn't code-signed, so Windows SmartScreen
 may ask once (*More info* → *Run anyway*).
+
+On a Mac, get `Timestamps-macOS.zip` from the same page; see [macOS](#macos).
 
 ## Features
 
@@ -88,24 +90,89 @@ F5 today · F7/F8 previous/next day · wheel zoom · Shift+wheel scroll · drag 
 select · E tag · Delete clear tags · B billable · Ctrl+C/Ctrl+V copy/paste tag ·
 +/− zoom · 0 fit · Shift+0 whole day · Ctrl+F filter · Ctrl+K search · Esc.
 
+## macOS
+
+One universal app for Apple silicon and Intel Macs, macOS 11.3 or later. It
+lives in the menu bar (the clock icon); the window opens from its menu, and
+the Dock icon shows only while the window is open.
+
+### Install
+
+1. Unzip `Timestamps-macOS.zip` and drag **Timestamps** into *Applications*.
+   Open it from there: an app opened in Downloads runs from a temporary copy
+   and can't start at login.
+2. The app is signed ad hoc but not notarized by Apple, so macOS blocks the
+   first start. Try to open it once, then go to *System Settings → Privacy &
+   Security*, scroll down and click **Open Anyway** (on macOS 14 and earlier,
+   Control-click the app and choose *Open* instead). Or, in Terminal:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Timestamps.app
+   ```
+
+### Permissions
+
+macOS asks for each of these separately. Timestamps keeps working without
+them, recording less; missing ones are listed at the top of its menu.
+
+| Permission | What it is for | Without it |
+| --- | --- | --- |
+| **Accessibility** | Window titles and the document a window shows | Only app names (titles from Screen Recording, if allowed) |
+| **Screen Recording** | Screenshots; window titles as a fallback | No screenshots. macOS applies it after Timestamps restarts |
+| **Automation** (asked per browser) | The address of the current tab in Safari, Chrome, Edge, Brave, Arc, Vivaldi and Opera | No websites from that browser, unless the extension is installed |
+| Notifications | Away prompts, stopwatch and countdown alerts | No banners |
+
+They are in *System Settings → Privacy & Security*. A rebuilt or updated app
+is a new app to macOS, so it may have to be allowed again.
+
+### Differences from Windows
+
+* Documents come from the window's open document (what the title bar's
+  proxy icon shows), else the file name in the title, looked up with
+  Spotlight.
+* Firefox has no scripting interface: websites from Firefox need the browser
+  extension (same steps as above; the folder is
+  `~/Library/Application Support/Timestamps/extension`).
+* Shortcuts use ⌘ instead of Ctrl (⌘C/⌘V copy/paste a tag, ⌘F filter, ⌘K
+  search); ⌘, opens Settings and ⌘W closes the window.
+* Data lives in `~/Library/Application Support/Timestamps`. *Open at login*
+  writes `~/Library/LaunchAgents/io.github.zjj2785.timestamps.plist`.
+* To import ManicTime history, copy `ManicTimeReports.db` from the Windows PC
+  and choose it in Settings → Data.
+
 ## Building
 
-Requires Go 1.20+, a MinGW-w64 gcc (cgo, for SQLite) and `windres`.
+Windows: Go 1.20+, a MinGW-w64 gcc (cgo, for SQLite) and `windres`.
 
 ```powershell
 .\build.ps1
 ```
 
-`go run ./tools/genicon .` regenerates the icons; `go test ./internal/...`
-runs the tests. Set `TIMESTAMPS_WEB_DIR=<repo>\web` to serve the UI from disk
+macOS: Go 1.20+ and the Xcode command line tools. This builds both
+architectures, makes `build/Timestamps.app`, signs it ad hoc and zips it:
+
+```bash
+sh build-mac.sh
+```
+
+GitHub Actions (`.github/workflows/macos.yml`) runs the tests and this build
+on a Mac for every push, and attaches the zip to the release of a `v*` tag.
+
+`go run ./tools/genicon .` regenerates the icons (`.ico`, `.icns`, PNGs);
+`go test ./...` runs the tests. Set `TIMESTAMPS_WEB_DIR=<repo>\web` to serve the UI from disk
 while developing.
 
 ## Layout
 
 ```
-main.go, shell.go        entry point, tray, app window (WebView2), notifications
+main.go, shell.go        entry point, tray menu, notifications (both platforms)
+*_windows.go             tray, app window (WebView2), single instance, autostart
+*_darwin.go              menu bar, app window (WKWebView), login item, permissions
 internal/win             Win32: windows, processes, idle/lock, icons, capture, tray
-internal/tracker         1 s sampler, documents (UIA/COM/Recent), screenshots, extension hub
+internal/mac             macOS (cgo + Objective-C): front app, Accessibility, idle/lock,
+                         browser tabs, Spotlight, capture, menu bar, window, dialogs
+internal/tracker         1 s sampler, documents, screenshots, extension hub
+                         (*_windows.go: UIA/COM/Recent; *_darwin.go: AX/Apple events)
 internal/store           SQLite schema, queries, stats, tags, timesheets, search, autotag, import
 internal/server          local HTTP API + event stream, stopwatch/countdown, backups
 web/                     UI (plain ES modules, no build step), embedded into the exe

@@ -461,4 +461,13 @@ const zh = {
   "docs": "文档",
   "finishing": "收尾",
   "starting": "开始",
+  // macOS wording
+  "Open at login": "登录时打开",
+  "Starts in the menu bar.": "启动后只显示在菜单栏中。",
+  "The window closes to free memory; tracking continues in the menu bar.": "关闭窗口以释放内存，跟踪在菜单栏中继续。",
+  "App, e.g. keepassxc": "应用，例如 keepassxc",
+  "Files are detected from the open document, the window title and Spotlight.": "文件通过窗口中打开的文档、窗口标题和“聚焦”识别。",
+  "Full file paths come from the open document of the window, the window title and Spotlight.": "完整文件路径来自窗口中打开的文档、窗口标题和“聚焦”。",
+  "Asks Safari, Chrome, Edge, Brave, Arc, Vivaldi and Opera for the current tab; macOS asks you once per browser. Firefox needs the browser extension.": "向 Safari、Chrome、Edge、Brave、Arc、Vivaldi 和 Opera 询问当前标签页；macOS 会为每个浏览器询问您一次。Firefox 需要浏览器扩展。",
+  "Select time on the timeline and press E, start a stopwatch from the menu bar, or create autotag rules.": "在时间轴上选择时间并按 E，或从菜单栏启动秒表，或创建自动标签规则。",
 };
