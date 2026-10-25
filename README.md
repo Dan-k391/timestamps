@@ -158,7 +158,8 @@ is a new app to macOS, so it may have to be allowed again.
 Windows: Go 1.20+, a MinGW-w64 gcc (cgo, for SQLite) and `windres`.
 
 ```powershell
-.\build.ps1
+.\build.ps1        # build\timestamps.exe
+.\build-setup.ps1  # also build\Timestamps-Setup-<version>.exe (tools/setup)
 ```
 
 macOS: Go 1.20+ and the Xcode command line tools. This builds both
