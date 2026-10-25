@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"strings"
+
+	"timestamps/internal/iconcolor"
 )
 
 // AppInfo describes a tracked application.
@@ -41,7 +43,11 @@ func (db *DB) AppID(key, name, path string, icon func() []byte) int64 {
 		if icon != nil {
 			ic = icon()
 		}
-		res, err := db.sql.Exec("INSERT INTO app(key, name, path, color, icon) VALUES(?, ?, ?, ?, ?)", key, name, path, ColorFor(key), ic)
+		color := ColorFor(key)
+		if c, ok := iconcolor.FromBytes(ic); ok {
+			color = c
+		}
+		res, err := db.sql.Exec("INSERT INTO app(key, name, path, color, icon) VALUES(?, ?, ?, ?, ?)", key, name, path, color, ic)
 		if err != nil {
 			return 0
 		}
@@ -55,6 +61,7 @@ func (db *DB) AppID(key, name, path string, icon func() []byte) int64 {
 		if !hasIcon && icon != nil {
 			if ic := icon(); ic != nil {
 				db.sql.Exec("UPDATE app SET icon = ? WHERE id = ?", ic, id)
+				db.colorFromIcon(id, ic)
 			}
 		}
 		db.sql.Exec("UPDATE app SET path = ? WHERE id = ? AND path = ''", path, id)
@@ -223,8 +230,62 @@ func (db *DB) SetAppIcon(id int64, png []byte) {
 		return
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
+		db.colorFromIcon(id, png)
 		db.touch()
 	}
+}
+
+// colorFromIcon gives an app the color of its icon, unless its color was
+// picked by hand.
+func (db *DB) colorFromIcon(id int64, icon []byte) {
+	if c, ok := iconcolor.FromBytes(icon); ok {
+		db.sql.Exec("UPDATE app SET color = ? WHERE id = ? AND color_auto = 1", c, id)
+	}
+}
+
+// iconColorsVersion is bumped when the way colors are picked from icons
+// changes, so existing apps and websites are colored again once.
+const iconColorsVersion = "1"
+
+// FillIconColors colors apps and websites from their icons once (apps
+// whose color was picked by hand keep it).
+func (db *DB) FillIconColors() {
+	if db.Meta("iconcolors") == iconColorsVersion {
+		return
+	}
+	for _, q := range []struct{ sel, upd string }{
+		{"SELECT id, icon FROM app WHERE icon IS NOT NULL AND color_auto = 1", "UPDATE app SET color = ? WHERE id = ?"},
+		{"SELECT rowid, icon FROM site_icon WHERE icon IS NOT NULL", "UPDATE site_icon SET color = ? WHERE rowid = ?"},
+	} {
+		rows, err := db.sql.Query(q.sel)
+		if err != nil {
+			continue
+		}
+		type upd struct {
+			id    int64
+			color string
+		}
+		var ups []upd
+		for rows.Next() {
+			var id int64
+			var ic []byte
+			rows.Scan(&id, &ic)
+			if c, ok := iconcolor.FromBytes(ic); ok {
+				ups = append(ups, upd{id, c})
+			}
+		}
+		rows.Close()
+		tx, err := db.sql.Begin()
+		if err != nil {
+			continue
+		}
+		for _, u := range ups {
+			tx.Exec(q.upd, u.color, u.id)
+		}
+		tx.Commit()
+	}
+	db.SetMeta("iconcolors", iconColorsVersion)
+	db.touch()
 }
 
 // AppIcon returns the PNG icon of an app.
@@ -292,8 +353,8 @@ func (db *DB) FixGenericNames(generic func(string) bool) {
 	}
 }
 
-// SetAppColor changes an app colour.
+// SetAppColor changes an app colour (it then no longer follows the icon).
 func (db *DB) SetAppColor(id int64, color string) {
-	db.sql.Exec("UPDATE app SET color = ? WHERE id = ?", strings.TrimPrefix(color, "#"), id)
+	db.sql.Exec("UPDATE app SET color = ?, color_auto = 0 WHERE id = ?", strings.TrimPrefix(color, "#"), id)
 	db.touch()
 }

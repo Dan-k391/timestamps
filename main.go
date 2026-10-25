@@ -54,6 +54,7 @@ func main() {
 		return
 	}
 	settings := db.Settings()
+	go db.FillIconColors()
 
 	extDir := filepath.Join(dataDir, "extension")
 	unpack(extension.FS, extDir)
@@ -71,6 +72,7 @@ func main() {
 	// Copies of the browsers' icon caches, one folder per data folder.
 	favTmp := filepath.Join(os.TempDir(), "timestamps-favicons-"+strconv.FormatUint(uint64(hashString(strings.ToLower(dataDir))), 16))
 	fav := favicon.New(db, favTmp, func() bool { return t.Settings().SiteIcons })
+	fav.OnFound = func() { t.Emit("icons") } // new website colors: views reload
 	srv := &server.Server{DB: db, T: t, Fav: fav, Web: webFS, DataDir: dataDir, ExtDir: extDir}
 	app := newApp(db, t, srv, dataDir)
 	srv.Host = app

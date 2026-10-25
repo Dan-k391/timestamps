@@ -124,6 +124,13 @@ export function hashColor(key) {
   return c;
 }
 
+/** A quiet color for things without an icon to take a color from. */
+export function mutedColor(key) {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return `hsl(${(h >>> 0) % 360} 16% 58%)`;
+}
+
 export const hex = (c) => (c ? (c.startsWith('#') || c.startsWith('hsl') ? c : '#' + c) : '#8b93a7');
 
 export function escapeHTML(s) {

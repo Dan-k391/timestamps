@@ -31,6 +31,8 @@ type Day struct {
 	TitMap map[int64]string   `json:"titleMap"`
 	DocMap map[int64]DocInfo  `json:"docMap"`
 	TagMap map[string]TagMeta `json:"tagMap"`
+	// Colors picked from website icons, by site (host and registrable domain).
+	SiteColors map[string]string `json:"siteColors"`
 }
 
 // TagMeta holds per-tag display settings.
@@ -215,6 +217,18 @@ func (db *DB) fillMaps(d *Day, apps, titles, docs map[int64]bool) {
 	}
 	for k, v := range db.TagMetas() {
 		d.TagMap[k] = v
+	}
+	d.SiteColors = map[string]string{}
+	colors := db.SiteColors()
+	for _, x := range d.DocMap {
+		if x.Kind != KindWeb {
+			continue
+		}
+		for _, k := range []string{x.Grp, BaseDomain(x.Grp)} {
+			if c, ok := colors[strings.ToLower(k)]; ok {
+				d.SiteColors[k] = c
+			}
+		}
 	}
 }
 
