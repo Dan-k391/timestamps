@@ -11,10 +11,16 @@ stays in one local SQLite database.
 
 ## Download
 
-Get `Timestamps-<version>-windows-x64.exe` and, optionally, the browser
-extension zips from [Releases](https://github.com/ZJJ-2785/timestamps/releases).
-Nothing to install: run the exe. It isn't code-signed, so Windows SmartScreen
-may ask once (*More info* → *Run anyway*).
+From [Releases](https://github.com/ZJJ-2785/timestamps/releases), on Windows
+get `Timestamps-Setup-<version>.exe`: it installs Timestamps for you only (no
+admin rights) into `%LOCALAPPDATA%\Programs\Timestamps`, with a Start menu
+shortcut and an uninstaller in *Apps & features* that keeps your data.
+`Timestamps-<version>-windows-x64.exe` is the same app without installing.
+Neither is code-signed, so Windows SmartScreen may ask once (*More info* →
+*Run anyway*). The app checks for new releases (Settings → About) and can
+update itself.
+
+The browser extension zips are optional.
 
 On a Mac, get `Timestamps-<version>-macos.zip` from the same page; see
 [macOS](#macos).
