@@ -120,11 +120,17 @@ func (a *App) openWindow(route string) {
 		return // a click while the window is starting: it is on its way
 	}
 	a.opening = true
+	// The library shows the window at once, so create it at its final,
+	// DPI-scaled size, and have WebView2 start in the page's background
+	// color instead of white.
+	dpi := win.SystemDPI()
+	ww, wh := win.FitScreen(1440*dpi/96, 900*dpi/96)
+	os.Setenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF"+a.windowBackground())
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		DataPath:  filepath.Join(a.dataDir, "webview"),
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
-			Title: "Timestamps", Width: 1440, Height: 900, IconId: 1, Center: true,
+			Title: "Timestamps", Width: uint(ww), Height: uint(wh), IconId: 1, Center: true,
 		},
 	})
 	a.opening = false
@@ -135,8 +141,6 @@ func (a *App) openWindow(route string) {
 	}
 	a.view = w
 	a.hwnd = uintptr(w.Window())
-	dpi := win.WindowDPI(a.hwnd)
-	win.PlaceWindow(a.hwnd, 1440*dpi/96, 900*dpi/96, false)
 	w.SetSize(960*dpi/96, 620*dpi/96, webview2.HintMin)
 	big, small := a.windowIcons()
 	win.SetWindowIcon(a.hwnd, big, small)
@@ -159,6 +163,26 @@ func (a *App) openWindow(route string) {
 		a.db.SetMeta("ui.trayHint", "1")
 		a.shell.Notify("Timestamps", a.Text("stillRunning"))
 	}
+}
+
+// Page background of the color themes (as in web/app.css): light, dark.
+var themeBG = map[string][2]string{
+	"classic": {"f4f5f8", "0c0f15"}, "dkhd": {"fff3f7", "1c1827"},
+	"onedark": {"", "21252b"}, "dracula": {"", "21222c"}, "tokyonight": {"", "16161e"}, "githubdark": {"", "010409"}, "gruvboxdark": {"", "1d2021"},
+	"githublight": {"f6f8fa", ""}, "onelight": {"eaeaeb", ""}, "solarized": {"eee8d5", ""}, "latte": {"e6e9ef", ""}, "rosepinedawn": {"f2e9e1", ""},
+}
+
+// windowBackground is the page background (RRGGBB) of the theme in use.
+func (a *App) windowBackground() string {
+	st, i := a.t.Settings(), 0
+	id := st.LightTheme
+	if a.prefersDark() {
+		id, i = st.DarkTheme, 1
+	}
+	if c := themeBG[id][i]; c != "" {
+		return c
+	}
+	return themeBG["classic"][i]
 }
 
 func (a *App) prefersDark() bool {
