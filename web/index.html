@@ -15,6 +15,7 @@
       try {
         var p = JSON.parse(localStorage.getItem('tsPalette') || 'null'), c = p && (d ? p.dark : p.light);
         if (c && c !== 'classic') document.documentElement.dataset.palette = c;
+        if (localStorage.getItem('ts.nav')) document.documentElement.classList.add('nav-collapsed');
       } catch (e) {}
     })();
   </script>
@@ -25,7 +26,7 @@
       <div class="brand">
         <span class="brand-logo" id="brand-logo" aria-hidden="true"><img src="icon.png" width="28" height="28" alt=""></span>
         <span id="brand-name">Timestamps</span>
-        <button id="collapse" class="btn btn-icon btn-sm btn-ghost collapse" type="button" title="Collapse">
+        <button id="collapse" class="btn btn-icon btn-sm btn-ghost collapse" type="button">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
         </button>
       </div>

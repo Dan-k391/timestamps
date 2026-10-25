@@ -151,3 +151,47 @@ func TestDomain(t *testing.T) {
 		}
 	}
 }
+
+func TestFocusTrendAndTotals(t *testing.T) {
+	db := openTemp(t)
+	day := time.Date(2026, 10, 20, 0, 0, 0, 0, time.Local)
+	s := day.Add(9 * time.Hour).Unix()
+	code := db.AppID("code.exe", "VS Code", "", nil)
+	chat := db.AppID("wechat.exe", "WeChat", "", nil)
+	// 09:00-10:00 and 10:01-10:30 make one session (a 1-minute gap);
+	// after 20 minutes away, 10:50-11:00 is another.
+	db.BeginUsage(s, s+3600, Active)
+	db.BeginUsage(s+3660, s+5400, Active)
+	db.BeginUsage(s+5400, s+6600, Away)
+	db.BeginUsage(s+6600, s+7200, Active)
+	db.BeginApp(s, s+1800, code, db.TitleID("a.go"))
+	db.BeginApp(s+1800, s+1900, chat, db.TitleID("chat"))
+	db.BeginApp(s+1900, s+3600, code, db.TitleID("b.go"))
+	db.BeginApp(s+6600, s+7200, code, db.TitleID("c.go"))
+	next := day.AddDate(0, 0, 1)
+	db.BeginUsage(next.Add(9*time.Hour).Unix(), next.Add(10*time.Hour).Unix(), Active)
+	db.AddTag(s, s+1800, "Dev", "", false)
+
+	st, err := db.Stats(day.Unix(), day.AddDate(0, 0, 2).Unix(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := st.Focus
+	if f.Sessions != 3 || f.Longest != [2]int64{s, s + 5400} || f.Lengths != [5]int{1, 0, 0, 2, 0} {
+		t.Fatalf("focus: %+v", f)
+	}
+	if f.Switches != 2 {
+		t.Fatalf("switches = %d", f.Switches)
+	}
+	if len(st.Trend) != 2 || st.Trend[0].ID != code || st.Trend[0].Days[0] != 1800+1700+600 || st.Trend[1].Days[0] != 100 {
+		t.Fatalf("trend: %+v", st.Trend)
+	}
+
+	p, err := db.Totals(day.Unix(), day.AddDate(0, 0, 2).Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Active != 5340+600+3600 || p.Away != 1200 || p.Tagged != 1800 || p.Days != 2 {
+		t.Fatalf("totals: %+v", p)
+	}
+}

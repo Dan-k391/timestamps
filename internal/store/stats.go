@@ -41,12 +41,68 @@ type Stats struct {
 	Sites  []Total      `json:"sites"`
 	Files  []Total      `json:"files"`
 	Tags   []Total      `json:"tags"`
+	Focus  Focus        `json:"focus"`
+	Trend  []Series     `json:"trend"` // the top applications, per day
+	Prev   *Period      `json:"prev,omitempty"`
+}
+
+// Focus breaks activity into sessions: stretches of activity with no break
+// longer than sessionGap. Sessions under a minute are left out.
+type Focus struct {
+	Sessions int      `json:"sessions"`
+	Longest  [2]int64 `json:"longest"`  // start and end of the longest session
+	Lengths  [5]int   `json:"lengths"`  // under 15 min, 15-30 min, 30-60 min, 1-2 h, 2 h and more
+	Switches int      `json:"switches"` // changes from one application to another
+}
+
+// Series is one application's time per day of the range.
+type Series struct {
+	ID   int64   `json:"id"`
+	Days []int64 `json:"days"`
+}
+
+// Period sums a range, for comparing with another one.
+type Period struct {
+	From   int64 `json:"from"`
+	To     int64 `json:"to"`
+	Active int64 `json:"active"`
+	Away   int64 `json:"away"`
+	Tagged int64 `json:"tagged"`
+	Days   int   `json:"days"` // days with activity
+}
+
+const (
+	sessionGap = 120 // seconds between active stretches that still make one session
+	trendApps  = 5
+)
+
+func (f *Focus) add(s, e int64) {
+	n := e - s
+	if n < 60 {
+		return
+	}
+	f.Sessions++
+	if n > f.Longest[1]-f.Longest[0] {
+		f.Longest = [2]int64{s, e}
+	}
+	switch {
+	case n < 15*60:
+		f.Lengths[0]++
+	case n < 30*60:
+		f.Lengths[1]++
+	case n < 3600:
+		f.Lengths[2]++
+	case n < 2*3600:
+		f.Lengths[3]++
+	default:
+		f.Lengths[4]++
+	}
 }
 
 // Stats aggregates every timeline over [a, b). With mergeSubdomains,
 // websites are grouped by registrable domain (t.a.com + c.a.com -> a.com).
 func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
-	st := &Stats{From: a, To: b, Apps: []Total{}, Sites: []Total{}, Files: []Total{}, Tags: []Total{}}
+	st := &Stats{From: a, To: b, Apps: []Total{}, Sites: []Total{}, Files: []Total{}, Tags: []Total{}, Trend: []Series{}}
 	bounds := dayStarts(a, b)
 	st.Days = make([]DayStat, len(bounds)-1)
 	for i := range st.Days {
@@ -58,6 +114,7 @@ func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 		return nil, err
 	}
 	spill := make([]bool, len(st.Days))
+	var cs, ce int64 // the session being built
 	for rows.Next() {
 		var s, e int64
 		var state int
@@ -91,11 +148,20 @@ func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 		if state == Active {
 			st.Active += e - s
 			heat(&st.Heat, s, e)
+			if ce > 0 && s-ce <= sessionGap {
+				if e > ce {
+					ce = e
+				}
+			} else {
+				st.Focus.add(cs, ce)
+				cs, ce = s, e
+			}
 		} else {
 			st.Away += e - s
 		}
 	}
 	rows.Close()
+	st.Focus.add(cs, ce)
 
 	// Applications.
 	// Aggregate first, then join: joining per segment would read every
@@ -113,6 +179,10 @@ func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 		st.Apps = append(st.Apps, t)
 	}
 	rows.Close()
+	// Switches and the top applications per day read every application
+	// segment again: that runs alongside the websites, files and tags.
+	pass := make(chan error, 1)
+	go func() { pass <- db.appPass(st, bounds, a, b) }()
 
 	// Websites by domain.
 	rows, err = db.sql.Query(`SELECT d.grp, SUM(g.t) t FROM
@@ -176,7 +246,103 @@ func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 		st.Tags = append(st.Tags, Total{Key: k, Name: k, Secs: v, Color: c})
 	}
 	sortTotals(st.Tags)
+	if err := <-pass; err != nil {
+		return nil, err
+	}
 	return st, nil
+}
+
+// appPass goes through the application segments in order, counting the
+// switches from one application to another and adding up the top
+// applications' time per day (st.Trend).
+func (db *DB) appPass(st *Stats, bounds []int64, a, b int64) error {
+	idx := map[int64]int{}
+	if len(st.Days) > 1 {
+		for _, app := range st.Apps {
+			if len(st.Trend) == trendApps {
+				break
+			}
+			idx[app.ID] = len(st.Trend)
+			st.Trend = append(st.Trend, Series{ID: app.ID, Days: make([]int64, len(st.Days))})
+		}
+	}
+	rows, err := db.sql.Query("SELECT app, s, e FROM app_seg WHERE s >= ? AND s < ? AND e > ? ORDER BY s", db.lowS(TApp, a), b, a)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var prev int64
+	day := 0 // the day the segments have reached
+	for rows.Next() {
+		var app, s, e int64
+		rows.Scan(&app, &s, &e)
+		if prev != 0 && app != prev {
+			st.Focus.Switches++
+		}
+		prev = app
+		i, ok := idx[app]
+		if !ok {
+			continue
+		}
+		s, e = max64(s, a), min64(e, b)
+		for day < len(bounds)-2 && bounds[day+1] <= s {
+			day++
+		}
+		days := st.Trend[i].Days
+		for d := day; d < len(bounds)-1 && bounds[d] < e; d++ {
+			if pe, ps := min64(e, bounds[d+1]), max64(s, bounds[d]); pe > ps {
+				days[d] += pe - ps
+			}
+		}
+	}
+	return nil
+}
+
+// Totals sums activity, away time and tags over [a, b).
+func (db *DB) Totals(a, b int64) (Period, error) {
+	p := Period{From: a, To: b}
+	bounds := dayStarts(a, b)
+	active := make([]bool, len(bounds)-1)
+	rows, err := db.sql.Query("SELECT s, e, state FROM usage_seg WHERE s >= ? AND s < ? AND e > ?", db.lowS(TUsage, a), b, a)
+	if err != nil {
+		return p, err
+	}
+	for rows.Next() {
+		var s, e int64
+		var state int
+		rows.Scan(&s, &e, &state)
+		s, e = max64(s, a), min64(e, b)
+		if state != Active {
+			p.Away += e - s
+			continue
+		}
+		p.Active += e - s
+		splitDays(bounds, s, e, func(i int, _, _ int64) { active[i] = true })
+	}
+	rows.Close()
+	for _, ok := range active {
+		if ok {
+			p.Days++
+		}
+	}
+	for _, tg := range db.TagsIn(a, b) {
+		p.Tagged += min64(tg.E, b) - max64(tg.S, a)
+	}
+	return p, nil
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func heat(h *[7][24]int64, s, e int64) {

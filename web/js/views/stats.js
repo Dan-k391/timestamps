@@ -1,10 +1,12 @@
-// Statistics: totals, activity by day, heatmap, top lists and drill-down.
+// Statistics: totals (against the period before), activity by day, heatmap,
+// focus sessions, weekly rhythm, top applications over time, top lists and
+// drill-down.
 import { h, clear, icon, button, appIcon, kindIcon, empty, dropdown, toast } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, clock, hex, hashColor, mutedColor, fmtDate, fmtDateLong, pct, weekStart, hourLabel, today, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
+import { dur, clock, hex, hashColor, mutedColor, fmtDate, fmtDateLong, fmtRange, pct, weekStart, hourLabel, today, addDays, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
 import * as api from '../api.js';
 import { columns, heatmap } from '../charts.js';
-import { rangeBar, resolve } from '../range.js';
+import { rangeBar, resolve, shift } from '../range.js';
 import { go } from '../router.js';
 
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
@@ -31,14 +33,15 @@ export function mount(el, params) {
     head.append(rangeBar(st, setState, ['day', 'week', 'month', 'year', 'last30', 'all', 'custom']), h('div', { class: 'spacer' }),
       button(t('Export'), { icon: 'download', onClick: (e) => exportMenu(e.currentTarget) }));
     const [from, to] = resolve(st.p, st.d, st.from, st.to);
+    const [pfrom, pto] = previous(st, from, to);
     body.classList.add('loading');
     try {
-      data = await api.get('stats', { from, to });
+      data = await api.get('stats', pfrom ? { from, to, pfrom, pto } : { from, to });
     } catch (err) { toast(err.message, { type: 'error' }); return; } finally { body.classList.remove('loading'); }
-    draw(from, to);
+    draw(from, to, pfrom && fmtRange(pfrom, pto));
   }
 
-  function draw(from, to) {
+  function draw(from, to, prevLabel) {
     clear(body);
     const d = data;
     let days = d.days;
@@ -53,12 +56,19 @@ export function mount(el, params) {
     const avgStart = activeDays.length ? activeDays.reduce((s, x) => s + (x.first - dayStart(x.date)), 0) / activeDays.length : 0;
     const avgEnd = activeDays.length ? activeDays.reduce((s, x) => s + (x.last - dayStart(x.date)), 0) / activeDays.length : 0;
 
-    const tile = (label, value, sub, cls = '') => h('div', { class: 'tile ' + cls }, h('div', { class: 'tile-label' }, label), h('div', { class: 'tile-value' }, value), sub ? h('div', { class: 'tile-sub' }, sub) : null);
+    const tile = (label, value, sub, cls = '', change = null) => h('div', { class: 'tile ' + cls }, h('div', { class: 'tile-label' }, label), h('div', { class: 'tile-value' }, value, change), sub ? h('div', { class: 'tile-sub' }, sub) : null);
+    // The change from the period before; its range and value in the tooltip.
+    const p = d.prev;
+    const delta = (cur, old) => {
+      if (!p || !old) return null;
+      const c = Math.round(((cur - old) / old) * 100);
+      return h('span', { class: 'delta' + (c > 0 ? ' up' : c < 0 ? ' down' : ''), title: prevLabel + ' · ' + dur(old) }, icon(c >= 0 ? 'up' : 'down', 11), Math.abs(c) + '%');
+    };
     body.append(h('div', { class: 'tiles' },
-      tile(t('Active'), dur(d.active), t('{0} days with activity', activeDays.length), 't-active'),
-      tile(t('Average per day'), dur(d.active / n), t('on active days')),
+      tile(t('Active'), dur(d.active), t('{0} days with activity', activeDays.length), 't-active', delta(d.active, p && p.active)),
+      tile(t('Average per day'), dur(d.active / n), t('on active days'), '', delta(d.active / n, p && p.days && p.active / p.days)),
       tile(t('Away'), dur(d.away), null, 't-away'),
-      tile(t('Tagged'), dur(d.tagged), d.active ? pct(d.tagged, d.active) + ' ' + t('of active time') : null, 't-tag'),
+      tile(t('Tagged'), dur(d.tagged), d.active ? pct(d.tagged, d.active) + ' ' + t('of active time') : null, 't-tag', delta(d.tagged, p && p.tagged)),
       tile(t('Average start'), activeDays.length ? fmtSec(avgStart) : '—', activeDays.length ? t('Average end') + ' ' + fmtSec(avgEnd) : null)));
 
     if (!d.active && !d.away) {
@@ -87,6 +97,10 @@ export function mount(el, params) {
         h('span', { class: 'legend' }, h('span', { class: 'dot', style: { background: C.active } }), t('Active'), h('span', { class: 'dot', style: { background: C.away } }), t('Away'))), chart),
       h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('clock', 16), h('h3', null, t('When you work'))),
         heatmap(d.heat, { days: dayNames, fmt: (v) => dur(v), weekStart: weekStart(), hourLabel }))));
+
+    body.append(h('div', { class: 'grid-2' }, focusCard(d), rhythmCard(d, days, dayNames)));
+    const top = topApps(d, buckets);
+    if (top) body.append(top);
 
     // Top lists.
     const listCard = (title, ic, items, render, kind) => {
@@ -129,9 +143,70 @@ export function mount(el, params) {
     body.append(h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('day', 16), h('h3', null, t('Attendance'))), h('div', { class: 'table-wrap' }, att)));
   }
 
+  // Focus: how the active time breaks into sessions, and how often the
+  // application changes.
+  function focusCard(d) {
+    const f = d.focus;
+    const hours = d.active / 3600;
+    const [ls, le] = f.longest;
+    const lsDay = ls ? dateKey(new Date(ls * 1000)) : '';
+    const names = ['< 15m', '15–30m', '30m–1h', '1–2h', '2h+'];
+    const most = Math.max(1, ...f.lengths);
+    return h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('timer', 16), h('h3', null, t('Focus'))),
+      h('div', { class: 'figs' },
+        fig(t('Sessions'), String(f.sessions)),
+        fig(t('Average session'), f.sessions ? dur(d.active / f.sessions) : '—'),
+        fig(t('Longest session'), ls ? dur(le - ls) : '—', ls ? { title: fmtDateLong(lsDay) + ' · ' + clock(ls) + '–' + clock(le), onClick: () => go('day/' + lsDay) } : {}),
+        fig(t('Switches per hour'), hours >= 0.1 ? (f.switches / hours).toFixed(1) : '—')),
+      h('div', { class: 'lengths' }, f.lengths.map((c, i) => h('div', { class: 'len-row' },
+        h('span', { class: 'len-name' }, names[i]),
+        h('div', { class: 'bar' }, h('div', { class: 'bar-fill', style: { width: (c ? Math.max(2, (c / most) * 100) : 0) + '%', background: 'var(--accent)', opacity: 0.35 + i * 0.16 } })),
+        h('span', { class: 'len-count' }, String(c))))));
+  }
+
+  // Rhythm: the average day of the week (or, for less than a week, the hours
+  // of the day), and when activity peaks.
+  function rhythmCard(d, days, dayNames) {
+    const C = cssVar('--accent');
+    const byHour = Array.from({ length: 24 }, (_, hr) => d.heat.reduce((n, row) => n + row[hr], 0));
+    const peak = byHour.indexOf(Math.max(...byHour));
+    const figs = [fig(t('Peak hour'), d.active ? hourLabel(peak) + '–' + hourLabel(peak + 1) : '—')];
+    let chart;
+    if (days.length >= 7) {
+      const order = weekStart() === 0 ? [6, 0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
+      const sum = Array(7).fill(0), count = Array(7).fill(0);
+      for (const x of days) {
+        const wd = (parseKey(x.date).getDay() + 6) % 7; // Monday = 0
+        sum[wd] += x.active;
+        count[wd]++;
+      }
+      const avg = sum.map((v, i) => (count[i] ? v / count[i] : 0));
+      figs.push(fig(t('Busiest day'), d.active ? dayNames[avg.indexOf(Math.max(...avg))] : '—'), fig(t('Weekend'), pct(sum[5] + sum[6], d.active)));
+      chart = columns({ labels: order.map((i) => dayNames[i]), series: [{ name: t('Average per day'), color: C, values: order.map((i) => avg[i]) }], fmt: (v) => dur(v, 'hm'), height: 150 });
+    } else {
+      chart = columns({ labels: byHour.map((_, hr) => String(hr)), series: [{ name: t('Active'), color: C, values: byHour }], fmt: (v) => dur(v, 'hm'), tipLabel: (i) => hourLabel(i) + '–' + hourLabel(i + 1), height: 150 });
+    }
+    return h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('activity', 16), h('h3', null, t('Rhythm'))), h('div', { class: 'figs' }, figs), chart);
+  }
+
+  // The top applications over the range, by day (or week, or month).
+  function topApps(d, buckets) {
+    if (!d.trend.length || buckets.length < 2) return null;
+    const at = new Map(d.days.map((x, i) => [x.date, i]));
+    const apps = d.trend.map((s) => ({ s, app: d.apps.find((a) => a.id === s.id) })).filter((x) => x.app);
+    const sumOf = (vals, b) => b.dates.reduce((n, k) => n + (vals[at.get(k)] || 0), 0);
+    const series = apps.map(({ s, app }) => ({ name: app.name, color: hex(app.color), values: buckets.map((b) => sumOf(s.days, b)) }));
+    const other = cssVar('--border-2');
+    series.push({ name: t('Other'), color: other, values: buckets.map((b, i) => Math.max(0, b.active - series.reduce((n, x) => n + x.values[i], 0))) });
+    const chart = columns({ labels: buckets.map((b) => b.label), series, fmt: (v) => dur(v, 'hm'), tipLabel: (i) => buckets[i].tip, onClick: (i) => { if (buckets[i].date) go('day/' + buckets[i].date); }, height: 200 });
+    const legend = h('span', { class: 'legend' }, apps.map(({ app }) => h('span', { class: 'legend-app' }, appIcon({ id: app.id, icon: app.icon, iconV: app.iconV, name: app.name, color: app.color }, 14), app.name)),
+      h('span', { class: 'legend-app' }, h('span', { class: 'dot', style: { background: other } }), t('Other')));
+    return h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('layers', 16), h('h3', null, t('Top applications')), h('div', { class: 'spacer' }), legend), chart);
+  }
+
   function bucketize(days) {
     if (days.length <= 62) {
-      return days.map((x) => ({ label: days.length > 14 ? String(parseKey(x.date).getDate()) : fmtDate(x.date, { weekday: 'short', day: 'numeric' }), tip: fmtDateLong(x.date), date: x.date, active: x.active, away: x.away }));
+      return days.map((x) => ({ label: days.length > 14 ? String(parseKey(x.date).getDate()) : fmtDate(x.date, { weekday: 'short', day: 'numeric' }), tip: fmtDateLong(x.date), date: x.date, dates: [x.date], active: x.active, away: x.away }));
     }
     const byMonth = days.length > 400;
     const out = [];
@@ -140,10 +215,11 @@ export function mount(el, params) {
       const k = byMonth ? x.date.slice(0, 7) : weekKey(x.date);
       let b = map.get(k);
       if (!b) {
-        b = { label: byMonth ? fmtDate(x.date, { month: 'short', year: '2-digit' }) : fmtDate(x.date, { month: 'short', day: 'numeric' }), tip: byMonth ? fmtDate(x.date, { month: 'long', year: 'numeric' }) : t('Week of {0}', fmtDate(x.date, { month: 'short', day: 'numeric', year: 'numeric' })), active: 0, away: 0 };
+        b = { label: byMonth ? fmtDate(x.date, { month: 'short', year: '2-digit' }) : fmtDate(x.date, { month: 'short', day: 'numeric' }), tip: byMonth ? fmtDate(x.date, { month: 'long', year: 'numeric' }) : t('Week of {0}', fmtDate(x.date, { month: 'short', day: 'numeric', year: 'numeric' })), dates: [], active: 0, away: 0 };
         map.set(k, b);
         out.push(b);
       }
+      b.dates.push(x.date);
       b.active += x.active;
       b.away += x.away;
     }
@@ -157,10 +233,19 @@ export function mount(el, params) {
     return dateKey(d);
   }
 
+  // The drawer slides out before it hides.
+  let drawerTimer = 0;
+  function closeDrawer() {
+    drawer.classList.add('closing');
+    drawerTimer = setTimeout(() => { drawer.hidden = true; drawer.classList.remove('closing'); }, 160);
+  }
+
   async function detail(kind, title, q, from, to, lead) {
+    clearTimeout(drawerTimer);
+    drawer.classList.remove('closing');
     drawer.hidden = false;
     clear(drawer);
-    drawer.append(h('div', { class: 'drawer-head' }, lead, h('h3', null, title), h('div', { class: 'spacer' }), button('', { icon: 'x', variant: 'ghost', onClick: () => (drawer.hidden = true) })),
+    drawer.append(h('div', { class: 'drawer-head' }, lead, h('h3', null, title), h('div', { class: 'spacer' }), button('', { icon: 'x', variant: 'ghost', onClick: closeDrawer })),
       q.path ? h('div', { class: 'drawer-path mono' }, q.path, button('', { icon: 'folder', small: true, variant: 'ghost', title: t('Show in folder'), onClick: () => api.post('reveal', { path: q.path }).catch(() => toast(t('File not found'), { type: 'error' })) })) : null,
       h('div', { class: 'drawer-body muted' }, t('Loading…')));
     const r = await api.get('detail', { kind, from, to, id: q.id, key: q.key });
@@ -204,6 +289,25 @@ export function mount(el, params) {
 
   render();
   return { refresh: (ev) => { if (ev && (ev.type === 'tags' || ev.type === 'settings')) render(); } };
+}
+
+// A figure: a number with its name under it; with onClick, a button.
+function fig(label, value, opts = {}) {
+  return h(opts.onClick ? 'button' : 'div', { class: 'fig' + (opts.onClick ? ' click' : ''), type: opts.onClick ? 'button' : null, title: opts.title, onClick: opts.onClick },
+    h('span', { class: 'fig-value' }, value), h('span', { class: 'fig-label' }, label));
+}
+
+// The period to compare with: the one before, cut to as many days as this
+// one has had so far (this week so far against the same days last week).
+function previous(s, from, to) {
+  if (s.p === 'all') return [];
+  if (['day', 'week', 'month', 'year'].includes(s.p)) {
+    const [pf, pt] = resolve(s.p, shift(s.p, from, -1));
+    const cut = addDays(pf, daysBetween(from, to > today() ? today() : to));
+    return [pf, cut < pt ? cut : pt];
+  }
+  const span = daysBetween(from, to) + 1;
+  return [addDays(from, -span), addDays(from, -1)];
 }
 
 function fmtSec(s) {

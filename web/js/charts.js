@@ -23,7 +23,8 @@ export function columns(opts) {
       },
       onMouseleave: hideTip,
     });
-    const stack = h('div', { class: 'ch-stack', style: { height: (totals[i] / nice) * 100 + '%' } });
+    // --i staggers the columns growing in, over at most 30 steps.
+    const stack = h('div', { class: 'ch-stack', style: { height: (totals[i] / nice) * 100 + '%', '--i': Math.round(i * Math.min(1, 30 / labels.length)) } });
     series.forEach((s) => {
       const v = s.values[i] || 0;
       if (v > 0) stack.append(h('div', { class: 'ch-seg', style: { flexGrow: v, background: s.color } }));
@@ -56,7 +57,7 @@ export function heatmap(heat, { days, fmt, weekStart = 1, hourLabel }) {
       const v = heat[d][hr];
       const a = v ? 0.12 + 0.88 * Math.sqrt(v / max) : 0;
       grid.append(h('span', {
-        class: 'heat-c', style: { '--a': a },
+        class: 'heat-c', style: { '--a': a, '--i': hr },
         onMousemove: (e) => showTip(e.clientX, e.clientY, `<div class="tip-title">${escapeHTML(days[d])} ${hourLabel(hr)}</div><div class="tip-time">${fmt(v)}</div>`),
         onMouseleave: hideTip,
       }));

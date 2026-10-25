@@ -195,7 +195,7 @@ func ringNow(paused bool) (key string, frac float64, c color.NRGBA) {
 
 // Page background of the color themes (as in web/app.css): light, dark.
 var themeBG = map[string][2]string{
-	"classic": {"f4f5f8", "0c0f15"}, "dkhd": {"fff3f7", "1c1827"},
+	"classic": {"f4f5f8", "0c0f15"}, "dkhd": {"ffeef4", "1c1827"},
 	"onedark": {"", "21252b"}, "dracula": {"", "21222c"}, "tokyonight": {"", "16161e"}, "githubdark": {"", "010409"}, "gruvboxdark": {"", "1d2021"},
 	"githublight": {"f6f8fa", ""}, "onelight": {"eaeaeb", ""}, "solarized": {"eee8d5", ""}, "latte": {"e6e9ef", ""}, "rosepinedawn": {"f2e9e1", ""},
 }

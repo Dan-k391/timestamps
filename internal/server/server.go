@@ -362,6 +362,14 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 			fail(w, err)
 			return
 		}
+		// The period to compare with, usually the one before.
+		if q := r.URL.Query(); q.Get("pfrom") != "" {
+			if pa, pb, err := store.Range(q.Get("pfrom"), q.Get("pto")); err == nil {
+				if p, err := s.DB.Totals(pa, pb); err == nil {
+					st.Prev = &p
+				}
+			}
+		}
 		writeJSON(w, r, st)
 
 	case "detail":

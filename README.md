@@ -38,7 +38,7 @@ On a Mac, get `Timestamps-<version>-macos.zip` from the same page; see
 | Stopwatch / countdown | From the tray or sidebar; stopwatch saves its time as a tag; countdown alerts and can tag. |
 | Autotagging rules | Rules on app, title, URL, domain or file path (contains / equals / starts / ends / regex), live preview, suggestions lane in the day view, apply to a day. |
 | Day view, zoom, filter, day summary | Canvas timeline with wheel zoom, pan, 24-hour overview strip, live "now" line, hover details, filter (Ctrl+F); summaries for the day or the selection. |
-| Statistics | Totals, activity by day/week/month, weekday × hour heatmap, top apps/sites/files/tags with drill-down, attendance table. |
+| Statistics | Totals with the change from the period before, activity by day/week/month, weekday × hour heatmap, focus sessions and app switches per hour, weekly rhythm (busiest day, peak hour, weekend share), top applications over time, top apps/sites/files/tags with drill-down, attendance table. |
 | Timesheets | Tags × days, group by level, rounding (5–60 min, nearest/up/down, never-zero), billable only. |
 | Search | Every day where a title, app, file, website, tag or note matches. |
 | Export | CSV (UTF-8, Excel-friendly) and real .xlsx for timelines, statistics and timesheets. |
@@ -57,7 +57,7 @@ and the password lock.
 | Memory while tracking (window closed) | ~50 MB, 1 process | ~280 MB, 3 processes |
 | Database for the same history | 76 MB | 399 MB |
 | Open a day | 5–10 ms | — |
-| Statistics: month / year / all time | 32 ms / 104 ms / 372 ms | — |
+| Statistics: month / year / all time | 28 ms / 132 ms / 640 ms | — |
 | Search all history | ~0.2 s | — |
 | Import 567k ManicTime records | 11.5 s | — |
 

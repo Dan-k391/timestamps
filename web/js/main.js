@@ -42,15 +42,19 @@ function applyTheme() {
   const dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
   const root = document.documentElement;
   const palette = (dark ? s.darkTheme : s.lightTheme) || 'classic';
-  const before = root.dataset.theme + '/' + (root.dataset.palette || 'classic');
-  root.dataset.theme = dark ? 'dark' : 'light';
-  if (palette === 'classic') delete root.dataset.palette; else root.dataset.palette = palette;
   try { localStorage.setItem('tsPalette', JSON.stringify({ light: s.lightTheme || 'classic', dark: s.darkTheme || 'classic' })); } catch (_) {}
   if (window.tsSetDark) window.tsSetDark(dark);
-  if (before === root.dataset.theme + '/' + palette) return;
-  resetColors();
-  if (current && current.theme) current.theme();
-  else if (lastRoute) { currentKey = ''; show(lastRoute); }
+  if (root.dataset.theme === (dark ? 'dark' : 'light') && (root.dataset.palette || 'classic') === palette) return;
+  const swap = () => {
+    root.dataset.theme = dark ? 'dark' : 'light';
+    if (palette === 'classic') delete root.dataset.palette; else root.dataset.palette = palette;
+    resetColors();
+    if (current && current.theme) current.theme();
+    else if (lastRoute) { currentKey = ''; show(lastRoute); }
+  };
+  // Once the app is up, a new theme cross-fades in.
+  if (document.startViewTransition && document.body.classList.contains('ready')) document.startViewTransition(swap);
+  else swap();
 }
 
 // The app's logo: a ring that fills clockwise once a day and turns from
@@ -120,13 +124,57 @@ function resolveLang(s) {
 
 function renderNav(active) {
   clear(nav);
-  for (const [key, v] of Object.entries(VIEWS)) {
-    if (key === 'settings') continue;
-    nav.append(h('a', { href: '#/' + key + (key === 'day' ? '/' + today() : ''), class: 'nav-item' + (key === active ? ' on' : ''), title: t(v.label) }, icon(v.icon, 18), h('span', null, t(v.label))));
-  }
+  const item = (key, v) => h('a', { href: '#/' + key + (key === 'day' ? '/' + today() : ''), class: 'nav-item' + (key === active ? ' on' : ''), 'data-tip': t(v.label), 'aria-label': t(v.label) }, icon(v.icon, 18), h('span', null, t(v.label)));
+  for (const [key, v] of Object.entries(VIEWS)) if (key !== 'settings') nav.append(item(key, v));
   const s = document.getElementById('nav-settings');
   clear(s);
-  s.append(h('a', { href: '#/settings', class: 'nav-item' + (active === 'settings' ? ' on' : ''), title: t('Settings') }, icon('settings', 18), h('span', null, t('Settings'))));
+  s.append(item('settings', VIEWS.settings));
+}
+
+// ---- collapsed sidebar ----------------------------------------------------
+
+// Collapsed, the sidebar is a rail of icons; an item's name shows beside it
+// on hover. The width animates only when toggled, not when the app opens.
+const root = document.documentElement;
+let navTimer = 0;
+function collapsed() { return root.classList.contains('nav-collapsed'); }
+function labelCollapse() {
+  const b = document.getElementById('collapse'), label = collapsed() ? t('Expand sidebar') : t('Collapse sidebar');
+  b.dataset.tip = label;
+  b.setAttribute('aria-label', label);
+  b.title = collapsed() ? '' : label;
+}
+function toggleNav() {
+  root.classList.add('nav-anim');
+  root.classList.toggle('nav-collapsed');
+  clearTimeout(navTimer);
+  navTimer = setTimeout(() => root.classList.remove('nav-anim'), 400);
+  try { localStorage.setItem('ts.nav', collapsed() ? '1' : ''); } catch (_) { /* ignore */ }
+  labelCollapse();
+  hideRailTip();
+}
+
+let railTip = null;
+function hideRailTip() {
+  if (!railTip) return;
+  railTip.remove();
+  railTip = null;
+}
+function railTips(side) {
+  side.addEventListener('mouseover', (e) => {
+    const el = collapsed() && e.target.closest('[data-tip]');
+    if (!el) return hideRailTip();
+    if (railTip && railTip._for === el) return;
+    hideRailTip();
+    const r = el.getBoundingClientRect();
+    railTip = h('div', { class: 'rail-tip' }, el.dataset.tip);
+    railTip._for = el;
+    railTip.style.left = side.getBoundingClientRect().right + 8 + 'px';
+    railTip.style.top = r.top + r.height / 2 + 'px';
+    document.body.append(railTip);
+  });
+  side.addEventListener('mouseleave', hideRailTip);
+  side.addEventListener('mousedown', hideRailTip);
 }
 
 function show(route) {
@@ -149,10 +197,17 @@ function show(route) {
 
 // ---- live status card ----------------------------------------------------
 
+// What the live card and the timers last showed: they animate in only when
+// that changes, not on every refresh.
+let liveShown = '', timerShown = '';
+
 function renderLive() {
   const l = state.live;
   clear(liveEl);
   if (!l) return;
+  const shown = l.state + '/' + (l.state === 'active' ? l.appId : '');
+  const enter = liveShown !== '' && shown !== liveShown ? ' enter' : '';
+  liveShown = shown;
   const labels = { active: t('Tracking'), away: t('Away'), paused: t('Paused'), schedule: t('Outside schedule'), off: t('Idle') };
   const head = h('div', { class: 'live-head' }, h('span', { class: 'live-dot ' + l.state }), h('span', { class: 'live-state' }, labels[l.state] || l.state),
     h('div', { class: 'spacer' }),
@@ -166,12 +221,12 @@ function renderLive() {
     } }));
   liveEl.append(head);
   if (l.state === 'active' && l.app) {
-    liveEl.append(h('div', { class: 'live-app' }, appIcon({ id: l.appId, icon: !!l.iconV, iconV: l.iconV, name: l.app }, 20),
+    liveEl.append(h('div', { class: 'live-app' + enter }, appIcon({ id: l.appId, icon: !!l.iconV, iconV: l.iconV, name: l.app }, 20),
       h('div', { class: 'live-text' }, h('div', { class: 'live-name' }, l.app), h('div', { class: 'live-title', title: l.title }, l.doc || l.title || ''))));
   } else if (l.state === 'paused' && l.pausedTill) {
-    liveEl.append(h('div', { class: 'live-title' }, t('Resumes at {0}', clock(l.pausedTill))));
+    liveEl.append(h('div', { class: 'live-title' + enter }, t('Resumes at {0}', clock(l.pausedTill))));
   } else if (l.state === 'away' && l.since) {
-    liveEl.append(h('div', { class: 'live-title' }, t('Since {0}', clock(l.since))));
+    liveEl.append(h('div', { class: 'live-title' + enter }, t('Since {0}', clock(l.since))));
   }
 }
 
@@ -184,31 +239,61 @@ function renderTimers() {
   const now = Math.floor(Date.now() / 1000);
   const offset = (tm.now || now) - now;
   const sw = tm.stopwatch, cd = tm.countdown;
+  const shown = sw ? 'sw' : cd ? 'cd' : '';
+  timerEl.classList.toggle('enter', shown !== '' && shown !== timerShown);
+  timerShown = shown;
+  // A running timer is a card; collapsed, it is a small clock whose actions
+  // are in its menu.
+  const rail = (cls, ico, tip, items) => {
+    const time = h('span', { class: 'rail-clock-time' });
+    const b = h('button', { type: 'button', class: 'rail-clock' + cls, 'data-tip': tip, 'aria-label': tip, onClick: () => dropdown(b, items, 'right') }, icon(ico, 16), time);
+    timerEl.append(b);
+    return { b, time };
+  };
+  const short = (s) => dur(Math.max(0, s), 'clock').replace(/^0:/, '');
   if (sw) {
+    const stop = async () => { await api.post('stopwatch/stop'); await refreshLive(); loadTags(); toast(t('Stopwatch saved as a tag'), { type: 'ok' }); };
+    const discard = async () => { await api.post('stopwatch/stop', { discard: true }); refreshLive(); };
     const el = h('span', { class: 'timer-clock' }, dur(now + offset - sw.start, 'clock'));
     timerEl.append(h('div', { class: 'timer running' },
       h('div', { class: 'timer-row' }, icon('timer', 16), el, h('div', { class: 'spacer' }),
-        button('', { icon: 'stop', small: true, variant: 'primary', title: t('Stop and save'), onClick: async () => { await api.post('stopwatch/stop'); await refreshLive(); loadTags(); toast(t('Stopwatch saved as a tag'), { type: 'ok' }); } }),
-        button('', { icon: 'x', small: true, variant: 'ghost', title: t('Discard'), onClick: async () => { await api.post('stopwatch/stop', { discard: true }); refreshLive(); } })),
+        button('', { icon: 'stop', small: true, variant: 'primary', title: t('Stop and save'), onClick: stop }),
+        button('', { icon: 'x', small: true, variant: 'ghost', title: t('Discard'), onClick: discard })),
       h('button', { class: 'timer-tags', type: 'button', onClick: editStopwatch }, sw.tags || t('Add tags…'))));
-    timerEl._tick = () => { el.textContent = dur(Math.floor(Date.now() / 1000) + offset - sw.start, 'clock'); };
+    const r = rail('', 'timer', sw.tags || t('Stopwatch'), [
+      { label: t('Stop and save'), icon: 'stop', onClick: stop },
+      { label: sw.tags || t('Add tags…'), icon: 'tag', onClick: editStopwatch },
+      { separator: true },
+      { label: t('Discard'), icon: 'x', danger: true, onClick: discard },
+    ]);
+    timerEl._tick = () => {
+      const s = Math.floor(Date.now() / 1000) + offset - sw.start;
+      el.textContent = dur(s, 'clock');
+      r.time.textContent = short(s);
+    };
+    timerEl._tick();
   } else if (cd) {
+    const cancel = async () => { await api.post('countdown/cancel'); refreshLive(); };
     const el = h('span', { class: 'timer-clock' });
-    const upd = () => { el.textContent = dur(Math.max(0, cd.end - (Math.floor(Date.now() / 1000) + offset)), 'clock'); };
-    upd();
     const total = cd.end - cd.start;
     const bar = h('div', { class: 'timer-progress' }, h('div'));
     timerEl.append(h('div', { class: 'timer running cd' },
       h('div', { class: 'timer-row' }, icon('hourglass', 16), el, h('div', { class: 'spacer' }),
-        button('', { icon: 'x', small: true, variant: 'ghost', title: t('Cancel countdown'), onClick: async () => { await api.post('countdown/cancel'); refreshLive(); } })),
+        button('', { icon: 'x', small: true, variant: 'ghost', title: t('Cancel countdown'), onClick: cancel })),
       cd.label || cd.tags ? h('div', { class: 'timer-tags' }, cd.label || cd.tags) : null, bar));
-    timerEl._tick = () => { upd(); bar.firstChild.style.width = Math.min(100, ((Math.floor(Date.now() / 1000) + offset - cd.start) / total) * 100) + '%'; };
+    const r = rail(' cd', 'hourglass', cd.label || cd.tags || t('Countdown'), [{ label: t('Cancel countdown'), icon: 'x', danger: true, onClick: cancel }]);
+    timerEl._tick = () => {
+      const nowS = Math.floor(Date.now() / 1000) + offset, p = Math.min(1, (nowS - cd.start) / total);
+      el.textContent = dur(Math.max(0, cd.end - nowS), 'clock');
+      r.time.textContent = short(cd.end - nowS);
+      bar.firstChild.style.width = p * 100 + '%';
+      r.b.style.setProperty('--p', p);
+    };
     timerEl._tick();
   } else {
     timerEl._tick = null;
-    timerEl.append(h('div', { class: 'timer-buttons' },
-      button(t('Stopwatch'), { icon: 'timer', small: true, title: t('Stopwatch'), onClick: startStopwatch }),
-      button(t('Countdown'), { icon: 'hourglass', small: true, title: t('Countdown'), onClick: startCountdown })));
+    const item = (ico, label, onClick) => h('button', { type: 'button', class: 'nav-item', 'data-tip': label, 'aria-label': label, onClick }, icon(ico, 18), h('span', null, label));
+    timerEl.append(h('div', { class: 'timer-buttons' }, item('timer', t('Stopwatch'), startStopwatch), item('hourglass', t('Countdown'), startCountdown)));
   }
 }
 setInterval(() => timerEl._tick && timerEl._tick(), 1000);
@@ -324,11 +409,9 @@ async function boot() {
     if (mod(e) && e.key.toLowerCase() === 'k') { e.preventDefault(); go('search'); }
     if (e.key === 'F5' && parse().view !== 'day') e.preventDefault();
   });
-  document.getElementById('collapse').onclick = () => {
-    document.body.classList.toggle('nav-collapsed');
-    try { localStorage.setItem('ts.nav', document.body.classList.contains('nav-collapsed') ? '1' : ''); } catch (_) { /* ignore */ }
-  };
-  try { if (localStorage.getItem('ts.nav')) document.body.classList.add('nav-collapsed'); } catch (_) { /* ignore */ }
+  document.getElementById('collapse').onclick = toggleNav;
+  labelCollapse();
+  railTips(document.querySelector('.sidebar'));
   window.__navigate = (route) => go(route.replace(/^\/+/, ''));
   document.body.classList.add('ready');
 }

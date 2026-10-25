@@ -306,10 +306,11 @@ export function menu(x, y, items) {
   });
 }
 
-/** Dropdown anchored under an element. */
-export function dropdown(anchor, items) {
+/** Dropdown anchored under an element, or beside it with side 'right'. */
+export function dropdown(anchor, items, side) {
   const r = anchor.getBoundingClientRect();
-  menu(r.left, r.bottom + 4, items);
+  if (side === 'right') menu(r.right + 8, r.top, items);
+  else menu(r.left, r.bottom + 4, items);
 }
 
 // ---- Tooltip ------------------------------------------------------------
@@ -345,14 +346,37 @@ export function select(options, value, onChange, attrs = {}) {
   return s;
 }
 
+// Where each set of options last had its highlight, so a control that is
+// rebuilt (as range bars are on every change) slides from there.
+const segLast = new Map();
+
 export function segmented(options, value, onChange) {
   const wrap = h('div', { class: 'segmented', role: 'tablist' });
+  const pill = h('span', { class: 'seg-pill' });
+  const key = options.map((o) => o[0]).join('|');
+  // The highlight is a pill behind the buttons that slides to the selected one.
+  const place = () => {
+    const on = wrap.querySelector('button.on');
+    if (!on || !on.offsetWidth) return;
+    const to = { x: on.offsetLeft, w: on.offsetWidth };
+    const from = segLast.get(key);
+    segLast.set(key, to);
+    pill.style.transition = 'none';
+    if (from) { pill.style.transform = `translateX(${from.x}px)`; pill.style.width = from.w + 'px'; }
+    wrap.classList.add('has-pill');
+    pill.getBoundingClientRect();
+    pill.style.transition = '';
+    pill.style.transform = `translateX(${to.x}px)`;
+    pill.style.width = to.w + 'px';
+  };
   const render = (v) => {
     clear(wrap);
+    wrap.append(pill);
     options.forEach(([val, label, ic]) => wrap.append(h('button', {
       type: 'button', role: 'tab', class: String(val) === String(v) ? 'on' : '', 'aria-selected': String(val) === String(v),
       onClick: () => { render(val); onChange(val); },
     }, ic ? icon(ic, 14) : null, label ? h('span', null, label) : null)));
+    requestAnimationFrame(place);
   };
   render(value);
   wrap.set = render;
