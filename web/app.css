@@ -207,7 +207,16 @@ kbd { font: 11.5px var(--font); padding: 1px 6px; border: 1px solid var(--border
 .nav-item.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
 .nav-collapsed .sidebar { padding: 14px 10px; align-items: center; }
-.nav-collapsed .brand span, .nav-collapsed .nav-item span, .nav-collapsed .live, .nav-collapsed #timer { display: none; }
+.nav-collapsed .brand span, .nav-collapsed .nav-item span, .nav-collapsed .live { display: none; }
+/* Collapsed: the stopwatch and countdown stay, as icon buttons and a small clock. */
+.nav-collapsed #timer { width: 44px; }
+.nav-collapsed .timer-buttons { grid-template-columns: 1fr; }
+.nav-collapsed .timer-buttons .btn { padding: 0; }
+.nav-collapsed .timer-buttons .btn span { display: none; }
+.nav-collapsed .timer.running { padding: 6px 2px; }
+.nav-collapsed .timer-row { flex-direction: column; gap: 4px; }
+.nav-collapsed .timer-row .spacer, .nav-collapsed .timer-tags { display: none; }
+.nav-collapsed .timer-clock { font-size: 10.5px; }
 .nav-collapsed .brand { flex-direction: column; padding: 2px 0 10px; }
 .nav-collapsed .brand .collapse { margin: 6px 0 0; }
 .nav-collapsed .nav-item { width: 44px; justify-content: center; padding: 0; }

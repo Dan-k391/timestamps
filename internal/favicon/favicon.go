@@ -69,7 +69,7 @@ func New(store Store, tmp string, download func() bool) *Finder {
 		sem:      make(chan struct{}, 4),
 		client: &http.Client{
 			Timeout:   8 * time.Second,
-			Transport: &http.Transport{Proxy: proxy, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 6 * time.Second},
+			Transport: &http.Transport{Proxy: Proxy, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 6 * time.Second},
 		},
 	}
 }

@@ -186,6 +186,34 @@ export function mount(el, params) {
     show();
   }
 
+  // Update status with "Check now" and, when there is one, "Update to x".
+  function updates() {
+    const box = h('div', { class: 'inline wrap' });
+    const draw = (u, busy) => {
+      clear(box);
+      let status;
+      if (busy) status = t('Checking…');
+      else if (!u) status = '';
+      else if (u.error === 'notfound') status = t('No public release found.');
+      else if (u.error) status = t('Couldn’t reach GitHub.');
+      else if (u.available) status = t('Version {0} is available.', u.latest);
+      else status = t('You have the latest version.');
+      box.append(h('span', { class: 'muted' }, status));
+      if (u && u.available && u.setup) {
+        box.append(button(t('Update to {0}', u.latest), { small: true, variant: 'primary', icon: 'download', onClick: async () => {
+          if (!(await confirmDialog(t('Download Timestamps {0} and install it? The app closes and opens again when done.', u.latest), { ok: t('Update') }))) return;
+          toast(t('Downloading the update…'), { timeout: 8000 });
+          try { await api.post('update/install'); } catch (err) { toast(err.message, { type: 'error', timeout: 8000 }); }
+        } }));
+      }
+      if (u && u.page) box.append(button(t('What’s new'), { small: true, variant: 'ghost', icon: 'external', onClick: () => api.post('open', { target: u.page }) }));
+      box.append(button(t('Check now'), { small: true, onClick: async () => { draw(u, true); try { draw(await api.get('update', { force: 1 })); } catch (_) { draw({ error: 'offline' }); } } }));
+    };
+    draw(null);
+    api.get('update').then((u) => draw(u)).catch(() => draw({ error: 'offline' }));
+    return box;
+  }
+
   function browser() {
     const connected = Object.entries(info.ext || {});
     const chromeDir = info.extDir;
@@ -292,6 +320,8 @@ export function mount(el, params) {
     body.append(group(null,
       h('div', { class: 'about' }, h('img', { src: 'icon.png', width: 56, height: 56, alt: '' }),
         h('div', null, h('h3', null, 'Timestamps ' + info.version), h('p', { class: 'muted' }, t('Automatic time tracking that stays on your computer.')))),
+      row(t('Updates'), updates(), t('Looks for new versions on GitHub. Installing one replaces the app and restarts it; your data stays.')),
+      row(t('Check for updates automatically'), sw('updateCheck')),
       row(t('Data folder'), h('div', { class: 'inline' }, h('span', { class: 'mono path' }, info.dataDir), button(t('Open'), { small: true, icon: 'folder', onClick: () => api.post('open', { target: info.dataDir }) }))),
       row(t('Open in a browser'), h('div', { class: 'inline' }, h('span', { class: 'mono path' }, info.url), button('', { icon: 'copy', small: true, variant: 'ghost', onClick: () => { navigator.clipboard.writeText(info.url); toast(t('Copied')); } })), t('The same interface works in any browser on this computer while Timestamps is running.')),
       window.__desktop ? row(t('Exit'), button(t('Exit Timestamps'), { icon: 'logout', small: true, variant: 'danger', onClick: () => window.tsQuit && window.tsQuit() }), t('Stops tracking until you start the app again.')) : null));

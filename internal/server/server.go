@@ -33,7 +33,7 @@ import (
 )
 
 // Version is the application version shown in the UI.
-const Version = "1.0.0"
+const Version = "1.1.0"
 
 // Ports tried in order; the browser extension probes the same list.
 var Ports = []int{47613, 47614, 47615, 47616}
@@ -44,6 +44,7 @@ type Host interface {
 	Notify(title, text string)
 	PickFile(title, filter string) string
 	PickFolder(title, dir string) string
+	Quit()
 	Open(target string)
 	Reveal(path string)
 	ApplySettings(old, cur store.Settings)
@@ -63,6 +64,7 @@ type Server struct {
 	token   string
 	timers  *Timers
 
+	upd    updates
 	impMu  sync.Mutex
 	imp    map[string]any
 	ln     net.Listener
@@ -180,12 +182,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.ext(w, r)
-	case p == "/api/internal/show":
+	case p == "/api/internal/show" || p == "/api/internal/quit":
+		// From another copy of the program (a second start, or the setup).
 		if r.Method != http.MethodPost || r.Header.Get("X-Timestamps-Instance") == "" {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		s.Host.Show(r.URL.Query().Get("route"))
+		if p == "/api/internal/quit" {
+			s.Host.Quit()
+		} else {
+			s.Host.Show(r.URL.Query().Get("route"))
+		}
 		w.WriteHeader(http.StatusNoContent)
 	case strings.HasPrefix(p, "/api/"):
 		c, err := r.Cookie("ts_token")
@@ -856,6 +863,16 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 		var req struct{ Title, Filter string }
 		readJSON(r, &req)
 		writeJSON(w, r, map[string]any{"path": s.Host.PickFile(req.Title, req.Filter)})
+
+	case "update":
+		writeJSON(w, r, s.CheckUpdate(r.URL.Query().Get("force") == "1"))
+
+	case "update/install":
+		if err := s.installUpdate(); err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, r, map[string]any{"ok": true})
 
 	case "pick-folder":
 		var req struct{ Title, Dir string }

@@ -24,20 +24,21 @@ import (
 
 // App is the desktop shell: tray icon, app window and notifications.
 type App struct {
-	db      *store.DB
-	t       *tracker.Tracker
-	srv     *server.Server
-	dataDir string
-	shell   *win.Shell
-	view    webview2.WebView
-	hwnd    uintptr
-	exiting bool
-	opening bool // the window is being created (WebView2 runs messages meanwhile)
-	iconBig uintptr
-	iconSm  uintptr
-	ringKey string  // what the ring icon shows now
-	ringSm  uintptr // ring icons (tray and window small, window big), UI thread only
-	ringBig uintptr
+	db           *store.DB
+	t            *tracker.Tracker
+	srv          *server.Server
+	dataDir      string
+	shell        *win.Shell
+	view         webview2.WebView
+	hwnd         uintptr
+	exiting      bool
+	opening      bool // the window is being created (WebView2 runs messages meanwhile)
+	iconBig      uintptr
+	iconSm       uintptr
+	balloonRoute string  // where clicking the last notification goes ("" = away prompt)
+	ringKey      string  // what the ring icon shows now
+	ringSm       uintptr // ring icons (tray and window small, window big), UI thread only
+	ringBig      uintptr
 }
 
 const (
@@ -82,7 +83,14 @@ func (a *App) run(showWindow bool) {
 	a.iconSm = win.LoadAppIcon(win.SystemMetric(49))
 	a.shell = win.NewShell("Timestamps", a.iconSm)
 	a.shell.OnLeftClick = func() { a.openWindow("") }
-	a.shell.OnBalloon = func() { a.openWindow("day?away=1") }
+	a.shell.OnBalloon = func() {
+		route := a.balloonRoute
+		if route == "" {
+			route = "day?away=1"
+		}
+		a.balloonRoute = ""
+		a.openWindow(route)
+	}
 	a.shell.OnMenu = a.menu
 	a.shell.OnCommand = a.command
 	a.shell.OnSuspend = a.t.Suspend
@@ -92,6 +100,8 @@ func (a *App) run(showWindow bool) {
 	}
 	go a.watch()
 	go a.tipLoop()
+	go a.updateLoop()
+	a.ApplySettings(a.t.Settings(), a.t.Settings())
 	if showWindow {
 		a.shell.Invoke(func() { a.openWindow("") })
 	}
@@ -283,6 +293,7 @@ func (a *App) watch() {
 		last := aw[len(aw)-1]
 		mins := (last.E - last.S) / 60
 		text := fmt.Sprintf(a.Text("awayText"), time.Unix(last.S, 0).Format("15:04"), time.Unix(last.E, 0).Format("15:04"), mins/60, mins%60)
+		a.shell.Invoke(func() { a.balloonRoute = "" }) // clicking it opens the away prompt
 		a.shell.Notify(a.Text("awayTitle"), text)
 	}
 }
@@ -353,6 +364,25 @@ func (a *App) windowIcons() (big, small uintptr) {
 // Notify shows a tray notification.
 func (a *App) Notify(title, text string) { a.shell.Notify(title, text) }
 
+// Quit exits the program (asked by the setup before it replaces it).
+func (a *App) Quit() { a.shell.Invoke(a.quit) }
+
+// updateLoop looks for a new release a minute after start and then twice a
+// day, and tells once per version when there is one.
+func (a *App) updateLoop() {
+	time.Sleep(time.Minute)
+	for {
+		if a.t.Settings().UpdateCheck {
+			if u := a.srv.CheckUpdate(false); u.Available && a.db.Meta("update.told") != u.Latest {
+				a.db.SetMeta("update.told", u.Latest)
+				a.shell.Invoke(func() { a.balloonRoute = "settings/about" })
+				a.shell.Notify(a.Text("updateTitle"), fmt.Sprintf(a.Text("updateText"), u.Latest))
+			}
+		}
+		time.Sleep(12 * time.Hour)
+	}
+}
+
 // Open opens a file, folder or URL with the default handler.
 func (a *App) Open(target string) { win.ShellOpen(target) }
 
@@ -389,9 +419,11 @@ func (a *App) PickFolder(title, dir string) string {
 
 // ApplySettings reacts to settings changes that touch the OS.
 func (a *App) ApplySettings(old, cur store.Settings) {
-	if old.RunAtStartup != cur.RunAtStartup || (cur.RunAtStartup && !win.Autostart("Timestamps")) {
-		exe, _ := os.Executable()
-		if err := win.SetAutostart("Timestamps", `"`+exe+`" --minimized`, cur.RunAtStartup); err != nil {
+	exe, _ := os.Executable()
+	cmd := `"` + exe + `" --minimized`
+	// Also when the program has moved (e.g. installed by the setup).
+	if old.RunAtStartup != cur.RunAtStartup || (cur.RunAtStartup && win.AutostartCommand("Timestamps") != cmd) {
+		if err := win.SetAutostart("Timestamps", cmd, cur.RunAtStartup); err != nil {
 			log.Println("autostart:", err)
 		}
 	}
@@ -407,6 +439,7 @@ var shellText = map[string]map[string]string{
 		"stopStopwatch": "Stop stopwatch", "discardStopwatch": "Discard stopwatch", "takeShot": "Take screenshot now",
 		"pause": "Pause tracking", "pause15": "For 15 minutes", "pause60": "For 1 hour", "pauseForever": "Until I resume",
 		"resume": "Resume tracking", "exit": "Exit", "stillRunning": "Timestamps keeps tracking in the notification area. Right-click the icon to exit.",
+		"updateTitle": "Update available", "updateText": "Timestamps %s is ready. Click to update.",
 		"awayTitle": "Welcome back", "awayText": "You were away %s–%s (%dh %02dm). Click to tag this time.",
 		"countdownDone": "Countdown finished", "stopwatchRunning": "Stopwatch running", "stopwatchStarted": "Stopwatch started. Stop it from the tray icon or the app.",
 		"activeToday": "active today", "pausedTip": "tracking paused",
@@ -416,6 +449,7 @@ var shellText = map[string]map[string]string{
 		"stopStopwatch": "停止秒表", "discardStopwatch": "放弃秒表", "takeShot": "立即截图",
 		"pause": "暂停跟踪", "pause15": "15 分钟", "pause60": "1 小时", "pauseForever": "直到我恢复",
 		"resume": "恢复跟踪", "exit": "退出", "stillRunning": "Timestamps 仍在通知区域中跟踪。右键单击图标可退出。",
+		"updateTitle": "有可用更新", "updateText": "Timestamps %s 已发布。点击即可更新。",
 		"awayTitle": "欢迎回来", "awayText": "您离开了 %s–%s（%d 小时 %02d 分）。点击为这段时间添加标签。",
 		"countdownDone": "倒计时结束", "stopwatchRunning": "秒表运行中", "stopwatchStarted": "秒表已开始。可从托盘图标或应用中停止。",
 		"activeToday": "今日活动", "pausedTip": "已暂停跟踪",

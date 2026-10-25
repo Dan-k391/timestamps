@@ -206,8 +206,8 @@ function renderTimers() {
   } else {
     timerEl._tick = null;
     timerEl.append(h('div', { class: 'timer-buttons' },
-      button(t('Stopwatch'), { icon: 'timer', small: true, onClick: startStopwatch }),
-      button(t('Countdown'), { icon: 'hourglass', small: true, onClick: startCountdown })));
+      button(t('Stopwatch'), { icon: 'timer', small: true, title: t('Stopwatch'), onClick: startStopwatch }),
+      button(t('Countdown'), { icon: 'hourglass', small: true, title: t('Countdown'), onClick: startCountdown })));
   }
 }
 setInterval(() => timerEl._tick && timerEl._tick(), 1000);
