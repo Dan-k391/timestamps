@@ -15,6 +15,7 @@ import (
 	ole "github.com/go-ole/go-ole"
 	webview2 "github.com/jchv/go-webview2"
 
+	"timestamps/internal/ring"
 	"timestamps/internal/server"
 	"timestamps/internal/store"
 	"timestamps/internal/tracker"
@@ -33,6 +34,7 @@ type App struct {
 	exiting bool
 	iconBig uintptr
 	iconSm  uintptr
+	ringKey string // what the tray ring shows now
 }
 
 const (
@@ -266,8 +268,36 @@ func (a *App) tipLoop() {
 			tip += " · " + a.Text("pausedTip")
 		}
 		a.shell.SetTip(tip)
+		a.updateRing(l.State == "paused")
 		time.Sleep(30 * time.Second)
 	}
+}
+
+// updateRing redraws the tray icon, a ring that fills once a day, when it
+// would look different: every 5 minutes, or when tracking pauses or resumes.
+func (a *App) updateRing(paused bool) {
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	step := int(now.Sub(midnight) / (5 * time.Minute))
+	key := fmt.Sprint(step, paused)
+	if key == a.ringKey {
+		return
+	}
+	a.ringKey = key
+	frac := float64(step) * 5 * 60 / now.AddDate(0, 0, 1).Sub(midnight).Seconds()
+	c := ring.Color(frac)
+	if paused {
+		c = ring.Gray
+	}
+	icon := win.IconFromImage(ring.Draw(win.SystemMetric(49), frac, c))
+	if icon == 0 {
+		return
+	}
+	a.shell.SetIcon(icon, func(old uintptr) {
+		if old != a.iconSm {
+			win.DestroyIcon(old)
+		}
+	})
 }
 
 // Notify shows a tray notification.

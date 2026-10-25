@@ -37,8 +37,10 @@ type Settings struct {
 	ShotsAllScreen bool   `json:"shotsAllScreens"`
 	ShotsDir       string `json:"shotsDir"` // "" = the screenshots folder in the data folder
 
-	Language       string `json:"language"` // auto | en | zh
-	Theme          string `json:"theme"`    // system | light | dark
+	Language       string `json:"language"`   // auto | en | zh
+	Theme          string `json:"theme"`      // system | light | dark
+	LightTheme     string `json:"lightTheme"` // color theme in light mode: classic, githublight, …
+	DarkTheme      string `json:"darkTheme"`  // color theme in dark mode: classic, onedark, …
 	DurationFormat string `json:"durationFormat"`
 	WeekStart      int    `json:"weekStart"` // 1 = Monday, 0 = Sunday
 	Clock24        bool   `json:"clock24"`
@@ -75,7 +77,7 @@ func DefaultSettings() Settings {
 		ReadAddressBar: true, AwayPrompt: true, AwayPromptMinutes: 10, Exclusions: []Exclusion{},
 		ScheduleDays: [7]bool{true, true, true, true, true, false, false}, ScheduleStart: "08:00", ScheduleEnd: "18:00",
 		ShotsOn: true, ShotsInterval: 5, ShotsMaxWidth: 1280, ShotsQuality: 60, ShotsKeepDays: 30, ShotsSkipSame: true,
-		Language: "auto", Theme: "system", DurationFormat: "hm", WeekStart: 1, Clock24: true,
+		Language: "auto", Theme: "system", LightTheme: "classic", DarkTheme: "classic", DurationFormat: "hm", WeekStart: 1, Clock24: true,
 		CloseToTray: true, RecentTags: 10, BackupKeep: 5, MergeSubdomains: true, SiteIcons: true,
 	}
 }

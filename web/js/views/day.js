@@ -689,7 +689,7 @@ export function mount(el, params) {
         reloadTimer = setTimeout(() => load(), ev.type === 'seg' ? 1200 : ev.type === 'icons' ? 1500 : 150);
       }
     },
-    theme() { if (data) { buildLanes(); tl.setData({ from: data.from, to: data.to, lanes, now: tl.now }); list.setLanes(lanes, data.from, data.to); } },
+    theme() { if (data) { buildLanes(); tl.setData({ from: data.from, to: data.to, lanes, now: tl.now }); list.setLanes(lanes, data.from, data.to); renderSummaries(); } },
     destroy() {
       document.removeEventListener('keydown', onKey);
       scroller && scroller.removeEventListener('scroll', onScroll);

@@ -11,6 +11,11 @@
     (function () {
       var d = matchMedia('(prefers-color-scheme: dark)').matches;
       document.documentElement.dataset.theme = d ? 'dark' : 'light';
+      // The color theme picked last time, so the window doesn't flash the classic colors.
+      try {
+        var p = JSON.parse(localStorage.getItem('tsPalette') || 'null'), c = p && (d ? p.dark : p.light);
+        if (c && c !== 'classic') document.documentElement.dataset.palette = c;
+      } catch (e) {}
     })();
   </script>
 </head>

@@ -1,7 +1,7 @@
 // App shell: sidebar, routing, live status, stopwatch, away prompt, theme.
 import { h, clear, icon, button, modal, tagInput, toast, appIcon, dropdown, toggle } from './ui.js';
 import { t, setLang } from './i18n.js';
-import { configure, dur, clock, today } from './fmt.js';
+import { configure, dur, clock, today, resetColors } from './fmt.js';
 import * as api from './api.js';
 import { state, refreshLive, loadTags, onChange } from './state.js';
 import { go, parse, onRoute } from './router.js';
@@ -27,18 +27,50 @@ const VIEWS = {
 
 let current = null;
 let currentKey = '';
+let lastRoute = null;
 const viewEl = document.getElementById('view');
 const nav = document.getElementById('nav');
 const liveEl = document.getElementById('live');
 const timerEl = document.getElementById('timer');
 
+// Light or dark mode, and the color theme picked for that mode (classic =
+// none). A change redraws the current view with the new colors.
 function applyTheme() {
-  const pref = (state.settings && state.settings.theme) || 'system';
+  const s = state.settings || {};
+  const pref = s.theme || 'system';
   const dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const root = document.documentElement;
+  const palette = (dark ? s.darkTheme : s.lightTheme) || 'classic';
+  const before = root.dataset.theme + '/' + (root.dataset.palette || 'classic');
+  root.dataset.theme = dark ? 'dark' : 'light';
+  if (palette === 'classic') delete root.dataset.palette; else root.dataset.palette = palette;
+  try { localStorage.setItem('tsPalette', JSON.stringify({ light: s.lightTheme || 'classic', dark: s.darkTheme || 'classic' })); } catch (_) {}
   if (window.tsSetDark) window.tsSetDark(dark);
-  current && current.theme && current.theme();
+  if (before === root.dataset.theme + '/' + palette) return;
+  resetColors();
+  if (current && current.theme) current.theme();
+  else if (lastRoute) { currentKey = ''; show(lastRoute); }
 }
+
+// Easter egg: typing "dkhd" (outside a text box) switches the dkhd theme on
+// for light and dark mode, and again switches back to the themes before it.
+let eggKeys = '';
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.altKey || e.metaKey || e.key.length !== 1 || /INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName)) return;
+  eggKeys = (eggKeys + e.key.toLowerCase()).slice(-4);
+  if (eggKeys !== 'dkhd' || !state.settings) return;
+  eggKeys = '';
+  const s = state.settings;
+  let prev = null;
+  try { prev = JSON.parse(localStorage.getItem('tsEggPrev') || 'null'); } catch (_) {}
+  const on = s.lightTheme !== 'dkhd' || s.darkTheme !== 'dkhd';
+  if (on) { try { localStorage.setItem('tsEggPrev', JSON.stringify({ light: s.lightTheme, dark: s.darkTheme })); localStorage.setItem('tsEgg', '1'); } catch (_) {} }
+  const next = on ? { lightTheme: 'dkhd', darkTheme: 'dkhd' } : { lightTheme: (prev && prev.light) || 'classic', darkTheme: (prev && prev.dark) || 'classic' };
+  Object.assign(s, next);
+  applyTheme();
+  api.post('settings', s).then((r) => { state.settings = r; }).catch(() => {});
+  toast(on ? 'dkhd ✿' : t('Theme restored'), { timeout: 1600 });
+});
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
 function resolveLang(s) {
@@ -58,6 +90,7 @@ function renderNav(active) {
 }
 
 function show(route) {
+  lastRoute = route;
   const v = VIEWS[route.view] ? route.view : 'day';
   const key = v + '/' + route.arg + '?' + JSON.stringify(route.params);
   if (key === currentKey) return;
