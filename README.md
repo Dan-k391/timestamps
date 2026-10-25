@@ -93,8 +93,9 @@ select · E tag · Delete clear tags · B billable · Ctrl+C/Ctrl+V copy/paste t
 ## macOS
 
 One universal app for Apple silicon and Intel Macs, macOS 11.3 or later. It
-lives in the menu bar (the clock icon); the window opens from its menu, and
-the Dock icon shows only while the window is open.
+lives in the menu bar as the day ring (as in the Windows tray); the window
+opens from its menu, and the Dock icon, the same live ring, shows only while
+the window is open.
 
 ### Install
 

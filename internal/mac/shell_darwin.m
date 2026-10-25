@@ -36,45 +36,26 @@ static void activateApp(void) {
 
 static bool bundled(void) { return NSBundle.mainBundle.bundleIdentifier != nil; }
 
-// statusImage draws the menu bar icon: the logo's dial with its activity
-// arc, as a template image macOS tints for light and dark menu bars.
-static NSImage *statusImage(void) {
-	NSImage *img = [NSImage imageWithSize:NSMakeSize(18, 18) flipped:NO drawingHandler:^BOOL(NSRect r) {
-		NSPoint c = NSMakePoint(9, 9);
-		[NSColor.blackColor set];
-		NSBezierPath *ring = [NSBezierPath bezierPathWithOvalInRect:NSInsetRect(r, 1.75, 1.75)];
-		ring.lineWidth = 1.5;
-		[ring stroke];
-		NSBezierPath *active = [NSBezierPath bezierPath];
-		[active appendBezierPathWithArcWithCenter:c radius:4.9 startAngle:86 endAngle:-70 clockwise:YES];
-		active.lineWidth = 2.2;
-		active.lineCapStyle = NSLineCapStyleRound;
-		[active stroke];
-		[[NSColor colorWithWhite:0 alpha:0.45] set];
-		NSBezierPath *away = [NSBezierPath bezierPath];
-		[away appendBezierPathWithArcWithCenter:c radius:4.9 startAngle:-115 endAngle:-192 clockwise:YES];
-		away.lineWidth = 2.2;
-		away.lineCapStyle = NSLineCapStyleRound;
-		[away stroke];
-		[NSColor.blackColor set];
-		NSBezierPath *hands = [NSBezierPath bezierPath];
-		[hands moveToPoint:NSMakePoint(9, 12.4)];
-		[hands lineToPoint:c];
-		[hands lineToPoint:NSMakePoint(9 + 2.6 * sin(128 * M_PI / 180), 9 + 2.6 * cos(128 * M_PI / 180))];
-		hands.lineWidth = 1.3;
-		hands.lineCapStyle = NSLineCapStyleRound;
-		hands.lineJoinStyle = NSLineJoinStyleRound;
-		[hands stroke];
-		return YES;
-	}];
-	img.template = YES;
+// placeholderIcon is the menu bar icon until Go draws the day ring: the
+// app's icon, small.
+static NSImage *placeholderIcon(void) {
+	NSImage *img = [[NSImage imageNamed:NSImageNameApplicationIcon] copy];
+	img.size = NSMakeSize(18, 18);
 	return img;
+}
+
+// hexColor reads an "RRGGBB" color.
+static NSColor *hexColor(NSString *h) {
+	unsigned v = 0;
+	if (h.length != 6 || ![[NSScanner scannerWithString:h] scanHexInt:&v]) return NSColor.windowBackgroundColor;
+	return [NSColor colorWithSRGBRed:((v >> 16) & 255) / 255.0 green:((v >> 8) & 255) / 255.0 blue:(v & 255) / 255.0 alpha:1];
 }
 
 @interface TSApp : NSObject <NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, WKNavigationDelegate, WKUIDelegate,
 	WKScriptMessageHandler, WKDownloadDelegate, UNUserNotificationCenterDelegate>
 @property(strong) NSDictionary *labels;
 @property(strong) NSStatusItem *item;
+@property(strong) NSImage *statusIcon; // the day ring, drawn by Go
 @property(copy) NSString *tip;
 @property(strong) NSWindow *window;
 @property(strong) WKWebView *web;
@@ -95,7 +76,7 @@ static TSApp *app;
 
 - (void)applicationDidFinishLaunching:(NSNotification *)n {
 	self.item = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
-	self.item.button.image = statusImage();
+	self.item.button.image = self.statusIcon ?: placeholderIcon();
 	self.item.button.toolTip = self.tip ?: @"Timestamps";
 	NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Timestamps"];
 	menu.delegate = self;
@@ -224,7 +205,7 @@ static NSMenuItem *menuItem(NSString *title, SEL action, NSString *key) {
 
 // ---- the window ----
 
-- (void)showURL:(NSString *)url script:(NSString *)script {
+- (void)showURL:(NSString *)url script:(NSString *)script background:(NSString *)background {
 	if (self.window != nil) {
 		if (script.length > 0) [self.web evaluateJavaScript:script completionHandler:nil];
 		[self present];
@@ -250,6 +231,7 @@ static NSMenuItem *menuItem(NSString *title, SEL action, NSString *key) {
 	win.contentMinSize = NSMakeSize(960, 620);
 	win.tabbingMode = NSWindowTabbingModeDisallowed;
 	win.delegate = self;
+	win.backgroundColor = hexColor(background);
 	[win center];
 	[win setFrameAutosaveName:@"Timestamps"]; // reopens where it was
 
@@ -257,13 +239,27 @@ static NSMenuItem *menuItem(NSString *title, SEL action, NSString *key) {
 	web.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 	web.navigationDelegate = self;
 	web.UIDelegate = self;
+	// Until the page paints, the window shows the theme's background
+	// rather than WebKit's white.
+	BOOL clear = NO;
+	@try {
+		[web setValue:@NO forKey:@"drawsBackground"];
+		clear = YES;
+	} @catch (NSException *e) {
+	}
+	if (@available(macOS 12.0, *)) web.underPageBackgroundColor = win.backgroundColor;
 	win.contentView = web;
 	self.window = win;
 	self.web = web;
 	[self applyAppearance];
 	self.shown = NO;
 	[web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:url]]];
-	// Shown once the page has loaded (no white flash), or after a moment.
+	if (clear) {
+		[self present];
+		return;
+	}
+	// WebKit draws white until the page loads: show the window once it has
+	// loaded, or after a moment.
 	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
 		if (self.window == win && !self.shown) [self present];
 	});
@@ -455,9 +451,9 @@ void tsNotify(const char *title, const char *text, const char *route) {
 	});
 }
 
-void tsShowWindow(const char *url, const char *script) {
-	NSString *u = str(url), *s = str(script);
-	onMain(^{ [app showURL:u script:s]; });
+void tsShowWindow(const char *url, const char *script, const char *background) {
+	NSString *u = str(url), *s = str(script), *b = str(background);
+	onMain(^{ [app showURL:u script:s background:b]; });
 }
 
 void tsSetAppearance(int mode) {
@@ -465,6 +461,37 @@ void tsSetAppearance(int mode) {
 		app.appearance = mode;
 		[app applyAppearance];
 	});
+}
+
+// tsSetStatusIcon shows the day ring in the menu bar: PNGs of points and
+// twice as many pixels.
+void tsSetStatusIcon(int points, const void *png1, int len1, const void *png2, int len2) {
+	NSImage *img = [[NSImage alloc] initWithSize:NSMakeSize(points, points)];
+	NSData *pngs[2] = {[NSData dataWithBytes:png1 length:len1], [NSData dataWithBytes:png2 length:len2]};
+	for (int i = 0; i < 2; i++) {
+		NSBitmapImageRep *rep = [NSBitmapImageRep imageRepWithData:pngs[i]];
+		if (rep == nil) continue;
+		rep.size = NSMakeSize(points, points);
+		[img addRepresentation:rep];
+	}
+	if (img.representations.count == 0) return;
+	onMain(^{
+		app.statusIcon = img;
+		app.item.button.image = img;
+	});
+}
+
+// tsSetAppIcon sets the Dock icon (and that of the app's alerts).
+void tsSetAppIcon(const void *png, int len) {
+	NSImage *img = [[NSImage alloc] initWithData:[NSData dataWithBytes:png length:len]];
+	if (img == nil) return;
+	onMain(^{ NSApp.applicationIconImage = img; });
+}
+
+bool tsSystemDark(void) {
+	@autoreleasepool {
+		return [[NSUserDefaults.standardUserDefaults stringForKey:@"AppleInterfaceStyle"] isEqualToString:@"Dark"];
+	}
 }
 
 void tsQuit(void) {

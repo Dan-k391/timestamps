@@ -76,14 +76,42 @@ func (s *Shell) Notify(title, text, route string) {
 }
 
 // ShowWindow opens the window at url, or brings it forward and runs script
-// in it when it is already open.
-func (s *Shell) ShowWindow(url, script string) {
+// in it when it is already open. A new window starts in background
+// (RRGGBB) until the page paints.
+func (s *Shell) ShowWindow(url, script, background string) {
 	u, f1 := cstr(url)
 	defer f1()
 	j, f2 := cstr(script)
 	defer f2()
-	C.tsShowWindow(u, j)
+	b, f3 := cstr(background)
+	defer f3()
+	C.tsShowWindow(u, j, b)
 }
+
+// SetStatusIcon shows the menu bar icon: two PNGs, of points and of twice
+// as many pixels (Retina).
+func (s *Shell) SetStatusIcon(points int, png1x, png2x []byte) {
+	if len(png1x) == 0 || len(png2x) == 0 {
+		return
+	}
+	p1, p2 := C.CBytes(png1x), C.CBytes(png2x)
+	defer C.free(p1)
+	defer C.free(p2)
+	C.tsSetStatusIcon(C.int(points), p1, C.int(len(png1x)), p2, C.int(len(png2x)))
+}
+
+// SetAppIcon sets the Dock icon (a PNG) while the app runs.
+func (s *Shell) SetAppIcon(png []byte) {
+	if len(png) == 0 {
+		return
+	}
+	p := C.CBytes(png)
+	defer C.free(p)
+	C.tsSetAppIcon(p, C.int(len(png)))
+}
+
+// SystemDark reports whether macOS uses the dark appearance.
+func SystemDark() bool { return bool(C.tsSystemDark()) }
 
 // Appearances of the window.
 const (

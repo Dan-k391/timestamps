@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"image"
+	"image/png"
 	"log"
 	"os"
 	"strings"
 
 	"timestamps/internal/mac"
+	"timestamps/internal/ring"
 	"timestamps/internal/store"
 )
 
@@ -14,7 +18,8 @@ type menuItem = mac.MenuItem
 
 // native is the macOS shell: menu bar icon and WKWebView window.
 type native struct {
-	shell *mac.Shell
+	shell   *mac.Shell
+	ringKey string // what the ring icon shows now
 }
 
 // loginLabel names the LaunchAgent that starts Timestamps at login; it is
@@ -151,7 +156,7 @@ func (a *App) openWindow(route string) {
 		b, _ := json.Marshal(route)
 		script = "window.__navigate && window.__navigate(" + string(b) + ")"
 	}
-	a.shell.ShowWindow(a.srv.URL()+"#/"+strings.TrimPrefix(route, "/"), script)
+	a.shell.ShowWindow(a.srv.URL()+"#/"+strings.TrimPrefix(route, "/"), script, a.windowBackground())
 }
 
 func (a *App) windowClosed() {
@@ -237,6 +242,25 @@ func (a *App) ApplySettings(old, cur store.Settings) {
 	}
 }
 
-func systemDark() bool { return false }
+func systemDark() bool { return mac.SystemDark() }
 
-func (a *App) updateRing(paused bool) {}
+// updateRing redraws the app's icon, a ring that fills once a day, in the
+// menu bar and the Dock when it would look different: every 5 minutes, or
+// when tracking pauses or resumes.
+func (a *App) updateRing(paused bool) {
+	key, frac, c := ringNow(paused)
+	if key == a.ringKey {
+		return
+	}
+	a.ringKey = key
+	a.shell.SetStatusIcon(18, pngBytes(ring.Draw(18, frac, c)), pngBytes(ring.Draw(36, frac, c)))
+	a.shell.SetAppIcon(pngBytes(ring.DrawIcon(512, frac, c)))
+}
+
+func pngBytes(img image.Image) []byte {
+	var b bytes.Buffer
+	if png.Encode(&b, img) != nil {
+		return nil
+	}
+	return b.Bytes()
+}
