@@ -32,6 +32,7 @@ type App struct {
 	view    webview2.WebView
 	hwnd    uintptr
 	exiting bool
+	opening bool // the window is being created (WebView2 runs messages meanwhile)
 	iconBig uintptr
 	iconSm  uintptr
 	ringKey string  // what the ring icon shows now
@@ -115,6 +116,10 @@ func (a *App) openWindow(route string) {
 		win.ShowWindowFront(a.hwnd)
 		return
 	}
+	if a.opening {
+		return // a click while the window is starting: it is on its way
+	}
+	a.opening = true
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		DataPath:  filepath.Join(a.dataDir, "webview"),
 		AutoFocus: true,
@@ -122,6 +127,7 @@ func (a *App) openWindow(route string) {
 			Title: "Timestamps", Width: 1440, Height: 900, IconId: 1, Center: true,
 		},
 	})
+	a.opening = false
 	if w == nil {
 		// No WebView2 runtime: fall back to the default browser.
 		win.ShellOpen(a.srv.URL() + "#/" + route)
