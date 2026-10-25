@@ -140,18 +140,18 @@
 /* dkhd: a hidden theme from six colors (pink fcadc8, sage 90beb5, gray b1b8bf, butter fdf4ad,
    indigo 6161f1, peach fd9a68). Type "dkhd" anywhere outside a text box to switch it on or off. */
 [data-palette="dkhd"][data-theme="light"] {
-  --bg: #fdfaf0; --surface: #ffffff; --surface-2: #fffdf6; --surface-3: #f6f1e1; --border: #ece5d1; --border-2: #ddd5bd;
+  --bg: #fff3f7; --surface: #ffffff; --surface-2: #fff9fb; --surface-3: #fcebf1; --border: #f6dbe5; --border-2: #ecc6d4;
   --text: #2b2a48; --text-2: #5b5a7a; --text-3: #9a99ae; --accent: #6161f1; --accent-2: #4b4bd8; --on-accent: #ffffff;
-  --accent-soft: rgba(97, 97, 241, 0.1); --sel: rgba(97, 97, 241, 0.14); --active: #90beb5; --away: #fdf4ad; --away-strong: #f2d763;
-  --now: #fd9a68; --lane: #fbf6e8; --grid: #efe9d8;
-  --cat-0: #6161f1; --cat-1: #fcadc8; --cat-2: #90beb5; --cat-3: #fd9a68; --cat-4: #f2d763; --cat-5: #b1b8bf; --cat-6: #8f8ff5; --cat-7: #e98aa8; --cat-8: #6fa69c; --cat-9: #f07c45;
+  --accent-soft: rgba(252, 173, 200, 0.42); --sel: rgba(252, 173, 200, 0.34); --active: #90beb5; --away: #fdf4ad; --away-strong: #f2d763;
+  --now: #fd9a68; --lane: #fdf1f5; --grid: #f8e3ea;
+  --cat-0: #fcadc8; --cat-1: #6161f1; --cat-2: #90beb5; --cat-3: #fd9a68; --cat-4: #f2d763; --cat-5: #b1b8bf; --cat-6: #e98aa8; --cat-7: #8f8ff5; --cat-8: #6fa69c; --cat-9: #f07c45;
 }
 [data-palette="dkhd"][data-theme="dark"] {
-  --bg: #18172a; --surface: #201f35; --surface-2: #25243d; --surface-3: #2e2d4a; --border: #353456; --border-2: #46456b;
-  --text: #f4f2ff; --text-2: #c6c4de; --text-3: #8a88a8; --accent: #8f8ff5; --accent-2: #b0b0f8; --on-accent: #14161c;
-  --accent-soft: rgba(143, 143, 245, 0.16); --sel: rgba(143, 143, 245, 0.2); --active: #90beb5; --away: #5a5545; --away-strong: #fdf4ad;
-  --now: #fd9a68; --lane: #25243d; --grid: #2c2b47;
-  --cat-0: #8f8ff5; --cat-1: #fcadc8; --cat-2: #90beb5; --cat-3: #fd9a68; --cat-4: #fdf4ad; --cat-5: #b1b8bf; --cat-6: #6161f1; --cat-7: #e98aa8; --cat-8: #6fa69c; --cat-9: #f07c45;
+  --bg: #1c1827; --surface: #241f33; --surface-2: #2a243b; --surface-3: #342c48; --border: #3d3452; --border-2: #4f4468;
+  --text: #f6f1ff; --text-2: #cfc6de; --text-3: #8d85a6; --accent: #8f8ff5; --accent-2: #b0b0f8; --on-accent: #14161c;
+  --accent-soft: rgba(252, 173, 200, 0.2); --sel: rgba(252, 173, 200, 0.22); --active: #90beb5; --away: #5a5545; --away-strong: #fdf4ad;
+  --now: #fd9a68; --lane: #2a243b; --grid: #332b45;
+  --cat-0: #fcadc8; --cat-1: #8f8ff5; --cat-2: #90beb5; --cat-3: #fd9a68; --cat-4: #fdf4ad; --cat-5: #b1b8bf; --cat-6: #e98aa8; --cat-7: #6161f1; --cat-8: #6fa69c; --cat-9: #f07c45;
 }
 
 * { box-sizing: border-box; }
@@ -195,7 +195,8 @@ kbd { font: 11.5px var(--font); padding: 1px 6px; border: 1px solid var(--border
   background: var(--surface); border-right: 1px solid var(--border); min-height: 0; overflow: hidden;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 2px 4px 10px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
-.brand img { border-radius: 7px; }
+.brand-logo { display: inline-flex; width: 28px; height: 28px; flex: none; }
+.brand-logo svg, .brand-logo img { width: 28px; height: 28px; }
 .brand .collapse { margin-left: auto; color: var(--text-3); }
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {

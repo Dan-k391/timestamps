@@ -52,6 +52,45 @@ function applyTheme() {
   else if (lastRoute) { currentKey = ''; show(lastRoute); }
 }
 
+// The app's logo: a ring that fills clockwise once a day and turns from
+// green through yellow and orange to red, gray while paused (the same as the
+// tray icon). Drawn in the sidebar and as the page icon.
+const RING = [[0, [63, 178, 127]], [0.45, [242, 197, 61]], [0.75, [245, 146, 47]], [1, [229, 72, 77]]];
+function ringColor(f) {
+  for (let i = 1; i < RING.length; i++) {
+    const [b, cb] = RING[i], [a, ca] = RING[i - 1];
+    if (f <= b) return `rgb(${ca.map((v, k) => Math.round(v + (cb[k] - v) * ((f - a) / (b - a)))).join(',')})`;
+  }
+  return 'rgb(229,72,77)';
+}
+let logoKey = '';
+function drawLogo() {
+  const d = new Date();
+  const f = Math.floor((d.getHours() * 60 + d.getMinutes()) / 5) / 288; // 5-minute steps
+  const paused = state.live && state.live.state === 'paused';
+  const key = f + '/' + paused;
+  if (key === logoKey) return;
+  logoKey = key;
+  const color = paused ? 'rgb(139,147,167)' : ringColor(f);
+  const track = 'rgba(128,134,148,0.43)';
+  const r = 10.6, c = 2 * Math.PI * r;
+  const host = document.getElementById('brand-logo');
+  if (host) {
+    host.innerHTML = `<svg viewBox="0 0 28 28"><circle cx="14" cy="14" r="${r}" fill="none" stroke="${track}" stroke-width="4.8"/>` +
+      (f > 0 ? `<circle cx="14" cy="14" r="${r}" fill="none" stroke="${color}" stroke-width="4.8" stroke-linecap="round" stroke-dasharray="${(f * c).toFixed(2)} ${c.toFixed(2)}" transform="rotate(-90 14 14)"/>` : '') + '</svg>';
+  }
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  g.lineWidth = 11;
+  g.strokeStyle = track;
+  g.beginPath(); g.arc(32, 32, 24, 0, 2 * Math.PI); g.stroke();
+  if (f > 0) { g.strokeStyle = color; g.lineCap = 'round'; g.beginPath(); g.arc(32, 32, 24, -Math.PI / 2, -Math.PI / 2 + f * 2 * Math.PI); g.stroke(); }
+  const link = document.querySelector('link[rel="icon"]');
+  if (link) link.href = cv.toDataURL('image/png');
+}
+setInterval(drawLogo, 30000);
+
 // Easter egg: typing "dkhd" (outside a text box) switches the dkhd theme on
 // for light and dark mode, and again switches back to the themes before it.
 let eggKeys = '';
@@ -256,11 +295,12 @@ async function boot() {
   configure(settings);
   applyTheme();
   document.getElementById('brand-name').textContent = 'Timestamps';
+  drawLogo();
   await Promise.all([refreshLive(), loadTags()]);
   renderLive();
   renderTimers();
   onChange((what) => {
-    if (what === 'live') { renderLive(); renderTimers(); }
+    if (what === 'live') { renderLive(); renderTimers(); drawLogo(); }
     if (what === 'settings') { configure(state.settings); applyTheme(); }
   });
   onRoute(show);

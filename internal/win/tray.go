@@ -205,18 +205,11 @@ func (s *Shell) SetTip(tip string) {
 	})
 }
 
-// SetIcon replaces the tray icon; the previous one is returned to the caller
-// through done (on the UI thread) so it can be freed once no longer shown.
-func (s *Shell) SetIcon(icon uintptr, done func(old uintptr)) {
-	s.Invoke(func() {
-		old := s.nid.Icon
-		s.nid.Icon = icon
-		s.nid.Flags = nifMessage | nifIcon | nifTip | nifShowTip
-		pShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&s.nid)))
-		if done != nil {
-			done(old)
-		}
-	})
+// SetIcon replaces the tray icon. Call it on the UI thread (see Invoke).
+func (s *Shell) SetIcon(icon uintptr) {
+	s.nid.Icon = icon
+	s.nid.Flags = nifMessage | nifIcon | nifTip | nifShowTip
+	pShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&s.nid)))
 }
 
 // Notify shows a balloon / toast from the tray icon.

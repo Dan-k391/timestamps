@@ -34,7 +34,9 @@ type App struct {
 	exiting bool
 	iconBig uintptr
 	iconSm  uintptr
-	ringKey string // what the tray ring shows now
+	ringKey string  // what the ring icon shows now
+	ringSm  uintptr // ring icons (tray and window small, window big), UI thread only
+	ringBig uintptr
 }
 
 const (
@@ -130,7 +132,8 @@ func (a *App) openWindow(route string) {
 	dpi := win.WindowDPI(a.hwnd)
 	win.PlaceWindow(a.hwnd, 1440*dpi/96, 900*dpi/96, false)
 	w.SetSize(960*dpi/96, 620*dpi/96, webview2.HintMin)
-	win.SetWindowIcon(a.hwnd, a.iconBig, a.iconSm)
+	big, small := a.windowIcons()
+	win.SetWindowIcon(a.hwnd, big, small)
 	win.SetDarkTitleBar(a.hwnd, a.prefersDark())
 	w.Bind("tsSetDark", func(dark bool) { win.SetDarkTitleBar(a.hwnd, dark) })
 	w.Bind("tsQuit", func() { a.quit() })
@@ -273,8 +276,9 @@ func (a *App) tipLoop() {
 	}
 }
 
-// updateRing redraws the tray icon, a ring that fills once a day, when it
-// would look different: every 5 minutes, or when tracking pauses or resumes.
+// updateRing redraws the app's icon, a ring that fills once a day, in the
+// tray and on the window when it would look different: every 5 minutes, or
+// when tracking pauses or resumes.
 func (a *App) updateRing(paused bool) {
 	now := time.Now()
 	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -289,15 +293,31 @@ func (a *App) updateRing(paused bool) {
 	if paused {
 		c = ring.Gray
 	}
-	icon := win.IconFromImage(ring.Draw(win.SystemMetric(49), frac, c))
-	if icon == 0 {
+	sm := win.IconFromImage(ring.Draw(win.SystemMetric(49), frac, c))
+	big := win.IconFromImage(ring.Draw(win.SystemMetric(11), frac, c))
+	if sm == 0 || big == 0 {
+		win.DestroyIcon(sm)
+		win.DestroyIcon(big)
 		return
 	}
-	a.shell.SetIcon(icon, func(old uintptr) {
-		if old != a.iconSm {
-			win.DestroyIcon(old)
+	a.shell.Invoke(func() {
+		oldSm, oldBig := a.ringSm, a.ringBig
+		a.ringSm, a.ringBig = sm, big
+		a.shell.SetIcon(sm)
+		if a.hwnd != 0 {
+			win.SetWindowIcon(a.hwnd, big, sm)
 		}
+		win.DestroyIcon(oldSm)
+		win.DestroyIcon(oldBig)
 	})
+}
+
+// windowIcons are the icons for the app window: the day ring once drawn.
+func (a *App) windowIcons() (big, small uintptr) {
+	if a.ringBig != 0 {
+		return a.ringBig, a.ringSm
+	}
+	return a.iconBig, a.iconSm
 }
 
 // Notify shows a tray notification.
