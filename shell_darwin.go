@@ -69,8 +69,17 @@ var platformText = map[string]map[string]string{
 
 func systemChinese() bool { return strings.HasPrefix(mac.PreferredLanguage(), "zh") }
 
-func (a *App) notify(title, text string) { a.shell.Notify(title, text, "day?away=1") }
+func (a *App) notify(title, text string) { a.notifyRoute(title, text, "") }
 func (a *App) setTip(tip string)         { a.shell.SetTip(tip) }
+
+// notifyRoute shows a notification that opens the window at route when
+// clicked ("" = the away prompt).
+func (a *App) notifyRoute(title, text, route string) {
+	if route == "" {
+		route = "day?away=1"
+	}
+	a.shell.Notify(title, text, route)
+}
 
 func appearance(theme string) int {
 	switch theme {
@@ -98,6 +107,7 @@ func (a *App) run(showWindow bool) {
 	a.shell.SetAppearance(appearance(a.t.Settings().Theme))
 	go a.watch()
 	go a.tipLoop()
+	go a.updateLoop()
 	a.shell.Run() // returns only through OnTerminate and exit
 }
 
@@ -177,6 +187,9 @@ func (a *App) quit() {
 	a.exiting = true
 	a.shell.Quit()
 }
+
+// Quit exits the app (to install an update).
+func (a *App) Quit() { a.quit() }
 
 // terminate runs as the app quits (from the menu, ⌘Q, logout or shutdown).
 func (a *App) terminate() {

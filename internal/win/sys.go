@@ -38,6 +38,17 @@ func Autostart(name string) bool {
 	return err == nil
 }
 
+// AutostartCommand returns the command registered to run at login ("" if none).
+func AutostartCommand(name string) string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	v, _, _ := k.GetStringValue(name)
+	return v
+}
+
 // SingleInstance acquires a named mutex; false means another copy runs.
 func SingleInstance(name string) bool {
 	p := utf16Ptr(name)

@@ -9,9 +9,9 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// proxy uses the proxy from the environment, else the Windows proxy setting
+// Proxy uses the proxy from the environment, else the Windows proxy setting
 // (what tools such as Clash set), so sites that need it can be reached.
-func proxy(req *http.Request) (*url.URL, error) {
+func Proxy(req *http.Request) (*url.URL, error) {
 	if u, err := http.ProxyFromEnvironment(req); u != nil || err != nil {
 		return u, err
 	}

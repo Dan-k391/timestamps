@@ -1,14 +1,17 @@
 #!/bin/sh
 # Builds Timestamps.app for Apple silicon and Intel Macs into ./build and
-# zips it. Run on a Mac with Go and the Xcode command line tools.
+# zips it as Timestamps-<version>-macos.zip, the name the in-app updater
+# looks for in a release. Run on a Mac with Go and the Xcode command line
+# tools.
 set -eu
 cd "$(dirname "$0")"
 
 export CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=11.3
 version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/server/server.go)
 app=build/Timestamps.app
+zip=build/Timestamps-$version-macos.zip
 
-rm -rf "$app" build/Timestamps-macOS.zip
+rm -rf "$app" build/Timestamps-*-macos.zip
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 for arch in arm64 amd64; do
 	GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "build/timestamps-$arch" .
@@ -26,5 +29,5 @@ plutil -lint "$app/Contents/Info.plist"
 codesign --force --sign - "$app"
 codesign --verify --verbose "$app"
 
-ditto -c -k --keepParent "$app" build/Timestamps-macOS.zip
-echo "Built $app $version ($(lipo -archs "$app/Contents/MacOS/Timestamps")) and build/Timestamps-macOS.zip"
+ditto -c -k --keepParent "$app" "$zip"
+echo "Built $app $version ($(lipo -archs "$app/Contents/MacOS/Timestamps")) and $zip"

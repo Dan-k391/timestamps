@@ -31,6 +31,8 @@ type native struct {
 	ringKey string  // what the ring icon shows now
 	ringSm  uintptr // ring icons (tray and window small, window big), UI thread only
 	ringBig uintptr
+
+	balloonRoute string // where clicking the last notification goes ("" = away prompt)
 }
 
 // platformText overrides shellText where Windows needs its own words.
@@ -43,12 +45,26 @@ func systemDark() bool { return win.SystemDarkMode() }
 func (a *App) notify(title, text string) { a.shell.Notify(title, text) }
 func (a *App) setTip(tip string)         { a.shell.SetTip(tip) }
 
+// notifyRoute shows a notification that opens the window at route when
+// clicked ("" = the away prompt).
+func (a *App) notifyRoute(title, text, route string) {
+	a.shell.Invoke(func() { a.balloonRoute = route })
+	a.shell.Notify(title, text)
+}
+
 func (a *App) run(showWindow bool) {
 	a.iconBig = win.LoadAppIcon(win.SystemMetric(11))
 	a.iconSm = win.LoadAppIcon(win.SystemMetric(49))
 	a.shell = win.NewShell("Timestamps", a.iconSm)
 	a.shell.OnLeftClick = func() { a.openWindow("") }
-	a.shell.OnBalloon = func() { a.openWindow("day?away=1") }
+	a.shell.OnBalloon = func() {
+		route := a.balloonRoute
+		if route == "" {
+			route = "day?away=1"
+		}
+		a.balloonRoute = ""
+		a.openWindow(route)
+	}
 	a.shell.OnMenu = a.menu
 	a.shell.OnCommand = a.command
 	a.shell.OnSuspend = a.t.Suspend
@@ -58,6 +74,8 @@ func (a *App) run(showWindow bool) {
 	}
 	go a.watch()
 	go a.tipLoop()
+	go a.updateLoop()
+	a.ApplySettings(a.t.Settings(), a.t.Settings())
 	if showWindow {
 		a.shell.Invoke(func() { a.openWindow("") })
 	}
@@ -178,6 +196,9 @@ func (a *App) quit() {
 	})
 }
 
+// Quit exits the program (asked by the setup before it replaces it).
+func (a *App) Quit() { a.shell.Invoke(a.quit) }
+
 // Open opens a file, folder or URL with the default handler.
 func (a *App) Open(target string) { win.ShellOpen(target) }
 
@@ -214,9 +235,11 @@ func (a *App) PickFolder(title, dir string) string {
 
 // ApplySettings reacts to settings changes that touch the OS.
 func (a *App) ApplySettings(old, cur store.Settings) {
-	if old.RunAtStartup != cur.RunAtStartup || (cur.RunAtStartup && !win.Autostart("Timestamps")) {
-		exe, _ := os.Executable()
-		if err := win.SetAutostart("Timestamps", `"`+exe+`" --minimized`, cur.RunAtStartup); err != nil {
+	exe, _ := os.Executable()
+	cmd := `"` + exe + `" --minimized`
+	// Also when the program has moved (e.g. installed by the setup).
+	if old.RunAtStartup != cur.RunAtStartup || (cur.RunAtStartup && win.AutostartCommand("Timestamps") != cmd) {
+		if err := win.SetAutostart("Timestamps", cmd, cur.RunAtStartup); err != nil {
 			log.Println("autostart:", err)
 		}
 	}

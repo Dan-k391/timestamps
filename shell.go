@@ -140,7 +140,22 @@ func (a *App) watch() {
 		last := aw[len(aw)-1]
 		mins := (last.E - last.S) / 60
 		text := fmt.Sprintf(a.Text("awayText"), time.Unix(last.S, 0).Format("15:04"), time.Unix(last.E, 0).Format("15:04"), mins/60, mins%60)
-		a.notify(a.Text("awayTitle"), text)
+		a.notifyRoute(a.Text("awayTitle"), text, "") // clicking it opens the away prompt
+	}
+}
+
+// updateLoop looks for a new release a minute after start and then twice a
+// day, and tells once per version when there is one.
+func (a *App) updateLoop() {
+	time.Sleep(time.Minute)
+	for {
+		if a.t.Settings().UpdateCheck {
+			if u := a.srv.CheckUpdate(false); u.Available && a.db.Meta("update.told") != u.Latest {
+				a.db.SetMeta("update.told", u.Latest)
+				a.notifyRoute(a.Text("updateTitle"), fmt.Sprintf(a.Text("updateText"), u.Latest), "settings/about")
+			}
+		}
+		time.Sleep(12 * time.Hour)
 	}
 }
 
@@ -217,6 +232,7 @@ var shellText = map[string]map[string]string{
 		"stopStopwatch": "Stop stopwatch", "discardStopwatch": "Discard stopwatch", "takeShot": "Take screenshot now",
 		"pause": "Pause tracking", "pause15": "For 15 minutes", "pause60": "For 1 hour", "pauseForever": "Until I resume",
 		"resume": "Resume tracking", "exit": "Exit", "stillRunning": "Timestamps keeps tracking in the notification area. Right-click the icon to exit.",
+		"updateTitle": "Update available", "updateText": "Timestamps %s is ready. Click to update.",
 		"awayTitle": "Welcome back", "awayText": "You were away %s–%s (%dh %02dm). Click to tag this time.",
 		"countdownDone": "Countdown finished", "stopwatchRunning": "Stopwatch running", "stopwatchStarted": "Stopwatch started. Stop it from the tray icon or the app.",
 		"activeToday": "active today", "pausedTip": "tracking paused",
@@ -226,6 +242,7 @@ var shellText = map[string]map[string]string{
 		"stopStopwatch": "停止秒表", "discardStopwatch": "放弃秒表", "takeShot": "立即截图",
 		"pause": "暂停跟踪", "pause15": "15 分钟", "pause60": "1 小时", "pauseForever": "直到我恢复",
 		"resume": "恢复跟踪", "exit": "退出", "stillRunning": "Timestamps 仍在通知区域中跟踪。右键单击图标可退出。",
+		"updateTitle": "有可用更新", "updateText": "Timestamps %s 已发布。点击即可更新。",
 		"awayTitle": "欢迎回来", "awayText": "您离开了 %s–%s（%d 小时 %02d 分）。点击为这段时间添加标签。",
 		"countdownDone": "倒计时结束", "stopwatchRunning": "秒表运行中", "stopwatchStarted": "秒表已开始。可从托盘图标或应用中停止。",
 		"activeToday": "今日活动", "pausedTip": "已暂停跟踪",

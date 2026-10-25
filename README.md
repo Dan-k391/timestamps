@@ -16,7 +16,8 @@ extension zips from [Releases](https://github.com/ZJJ-2785/timestamps/releases).
 Nothing to install: run the exe. It isn't code-signed, so Windows SmartScreen
 may ask once (*More info* → *Run anyway*).
 
-On a Mac, get `Timestamps-macOS.zip` from the same page; see [macOS](#macos).
+On a Mac, get `Timestamps-<version>-macos.zip` from the same page; see
+[macOS](#macos).
 
 ## Features
 
@@ -99,7 +100,8 @@ the window is open.
 
 ### Install
 
-1. Unzip `Timestamps-macOS.zip` and drag **Timestamps** into *Applications*.
+1. Unzip `Timestamps-<version>-macos.zip` and drag **Timestamps** into
+   *Applications*.
    Open it from there: an app opened in Downloads runs from a temporary copy
    and can't start at login.
 2. The app is signed ad hoc but not notarized by Apple, so macOS blocks the
@@ -140,6 +142,10 @@ is a new app to macOS, so it may have to be allowed again.
   writes `~/Library/LaunchAgents/io.github.zjj2785.timestamps.plist`.
 * To import ManicTime history, copy `ManicTimeReports.db` from the Windows PC
   and choose it in Settings → Data.
+* *Update* (Settings → About) downloads the new app, puts it in place of the
+  old one once Timestamps has quit, and opens it. When it can't replace the
+  app (not in a folder you can write to, or opened from Downloads), it opens
+  the release page instead. macOS may ask for the permissions again.
 
 ## Building
 
