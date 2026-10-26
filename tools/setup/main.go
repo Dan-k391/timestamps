@@ -96,9 +96,19 @@ func install(quiet bool) {
 		}
 	}
 	register(dir, exe)
-	exec.Command(exe).Start()
+	start(exe)
 	if !quiet {
 		tell(tr("installed"))
+	}
+}
+
+// start runs the installed app through Explorer, so it doesn't inherit the
+// setup's job or container: the setup may itself have been started by an
+// app whose children Windows confines (an MSIX app's container redirects
+// their AppData and ends them with it).
+func start(exe string) {
+	if exec.Command("explorer.exe", exe).Start() != nil {
+		exec.Command(exe).Start()
 	}
 }
 

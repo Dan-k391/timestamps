@@ -37,12 +37,19 @@ func main() {
 	}
 	dataDir, _ = filepath.Abs(dataDir)
 	os.MkdirAll(dataDir, 0o755)
-	setupLog(dataDir)
 
 	if !singleInstance(dataDir) {
 		signalRunning()
 		return
 	}
+	// Started from inside another app's container (Claude's tools, for
+	// one), Windows would keep the data in that app's own folder, out of
+	// sight, and end Timestamps whenever that app restarts.
+	if real := redirectedDataDir(dataDir); real != "" {
+		alert("Timestamps", redirectedText(real))
+		return
+	}
+	setupLog(dataDir)
 
 	db, err := store.Open(filepath.Join(dataDir, "timestamps.db"))
 	if err != nil {
@@ -93,6 +100,25 @@ func main() {
 	log.Println("exited")
 }
 
+// redirectedText explains why Timestamps won't start with a redirected data
+// folder. The app whose folder it is comes from the path:
+// ...\Packages\<Name>_<publisher id>\LocalCache\...
+func redirectedText(real string) string {
+	owner := "another app"
+	if i := strings.Index(strings.ToLower(real), `\packages\`); i >= 0 {
+		owner = strings.SplitN(real[i+len(`\packages\`):], `\`, 2)[0]
+		if j := strings.LastIndex(owner, "_"); j > 0 {
+			owner = owner[:j]
+		}
+	}
+	if systemChinese() {
+		return "Timestamps 是从另一个应用（" + owner + "）内部启动的。Windows 会把数据存到该应用自己的文件夹里：\n" + real +
+			"\n\n这样数据在别处看不到，而且该应用重启时 Timestamps 也会被关闭。\n\n请从开始菜单启动 Timestamps。"
+	}
+	return "Timestamps was started from inside another app (" + owner + "). Windows would keep its data in that app's own folder:\n" + real +
+		"\n\nThere it is hidden from everything else, and Timestamps would close whenever that app restarts.\n\nStart Timestamps from the Start menu instead."
+}
+
 func hashString(s string) uint32 {
 	h := uint32(2166136261)
 	for i := 0; i < len(s); i++ {
@@ -110,6 +136,9 @@ func setupLog(dir string) {
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err == nil {
 		log.SetOutput(f)
+		// A crash (panic or fatal error) prints to standard error, which a
+		// windowed app doesn't have: send it to the log too.
+		redirectStderr(f)
 	}
 }
 

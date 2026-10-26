@@ -35,3 +35,13 @@ func singleInstance(dataDir string) bool {
 }
 
 func alert(title, text string) { mac.Alert(title, text) }
+
+// redirectedDataDir: macOS doesn't redirect the data folder.
+func redirectedDataDir(string) string { return "" }
+
+// redirectStderr makes f the process's standard error, where the Go runtime
+// writes crash reports.
+func redirectStderr(f *os.File) {
+	syscall.Dup2(int(f.Fd()), 2)
+	os.Stderr = f
+}
