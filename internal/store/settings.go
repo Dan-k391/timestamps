@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"runtime"
 	"sync"
+	"time"
 )
 
 // Exclusion limits tracking for one application.
@@ -42,6 +43,7 @@ type Settings struct {
 	ShotsDir       string `json:"shotsDir"` // "" = the screenshots folder in the data folder
 
 	Language       string `json:"language"`   // auto | en | zh
+	Timezone       string `json:"timezone"`   // IANA name, "" = the system's
 	Theme          string `json:"theme"`      // system | light | dark
 	LightTheme     string `json:"lightTheme"` // color theme in light mode: classic, githublight, …
 	DarkTheme      string `json:"darkTheme"`  // color theme in dark mode: classic, onedark, …
@@ -121,12 +123,23 @@ func (db *DB) Settings() Settings {
 func (db *DB) SaveSettings(s Settings) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
+	if _, err := time.LoadLocation(s.Timezone); err != nil {
+		s.Timezone = "" // newer than our zone data: the page must not show a zone the days don't follow
+	}
 	b, _ := json.Marshal(s)
 	if err := db.SetMeta("settings", string(b)); err != nil {
 		return err
 	}
 	if m := s.longAway(); db.longAway.Swap(m) != m {
 		db.touch() // the timelines read differently now
+	}
+	if s.Timezone != db.zone {
+		old := time.Local
+		db.zone = s.Timezone
+		applyZone(s.Timezone)
+		err := db.rekeyDays(old)
+		db.touch() // and so do the days
+		return err
 	}
 	return nil
 }

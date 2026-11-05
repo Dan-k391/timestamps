@@ -67,9 +67,10 @@ func repeated(t time.Time) bool {
 }
 
 // shotName is the date folder and file name (without .jpg) of a screenshot:
-// its local time, with "b" added the second time that time comes round.
+// its time on the system clock, with "b" added the second time that time
+// comes round. The path isn't stored, so it must not follow Settings.Timezone.
 func shotName(ts int64) (day, name string) {
-	t := time.Unix(ts, 0).In(time.Local)
+	t := time.Unix(ts, 0).In(store.SystemZone)
 	name = t.Format("150405")
 	if repeated(t) {
 		name += "b"

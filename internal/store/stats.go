@@ -113,7 +113,7 @@ func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 	for i := range st.Days {
 		st.Days[i].Date = time.Unix(bounds[i], 0).In(time.Local).Format("2006-01-02")
 	}
-	input, err := db.inputDays(bounds)
+	input, err := db.inputDays(bounds, false)
 	if err != nil {
 		return nil, err
 	}

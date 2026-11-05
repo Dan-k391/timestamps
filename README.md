@@ -6,7 +6,7 @@ documents and websites you use, detects when you are away, takes periodic
 screenshots, and lets you tag, report on and export your time. Everything
 stays in one local SQLite database.
 
-`timestamps.exe` is a single 10 MB executable with no runtime to install
+`timestamps.exe` is a single 11 MB executable with no runtime to install
 (it uses the WebView2 runtime that ships with Windows 10/11).
 
 ## Download
@@ -43,9 +43,10 @@ On a Mac, get `Timestamps-<version>-macos.zip` from the same page; see
 | Timesheets | Tags × days, group by level, rounding (5–60 min, nearest/up/down, never-zero), billable only. |
 | Search | Every day where a title, app, file, website, tag or note matches. |
 | Export | CSV (UTF-8, Excel-friendly) and real .xlsx for timelines, statistics and timesheets. |
-| Settings | Away time, sound, titles, documents, private browsing, tracking schedule, per-app privacy exceptions, startup, theme (light/dark/system), language (English / 简体中文), duration format, week start. |
+| Settings | Away time, sound, titles, documents, private browsing, tracking schedule, per-app privacy exceptions, startup, theme (light/dark/system), language (English / 简体中文), time zone, duration format, week start. |
 | Backups, delete data | Backup now, scheduled backups with retention, delete any range per timeline. |
 | — | **Import your ManicTime history** (Settings → Data). Imports only the time before Timestamps started tracking, so nothing is counted twice. |
+| — | **Import your KeyStats history** (Settings → Data): daily totals, keys and applications, for the days before Timestamps started counting. KeyStats has no time of day, so those days have no chart by hour. Files from KeyStats for Mac can't be imported yet. |
 | — | The same UI also works in any browser at `http://127.0.0.1:47613` while the app runs. |
 
 Not included: ManicTime Server/team sync, calendar timelines (Google/Outlook)

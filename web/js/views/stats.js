@@ -3,7 +3,7 @@
 // drill-down.
 import { h, clear, icon, button, appIcon, kindIcon, empty, dropdown, toast, segmented, debounce } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, clock, mouseDistance, hex, hashColor, mutedColor, fmtDate, fmtDateLong, fmtRange, pct, weekStart, hourLabel, today, addDays, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
+import { dur, clock, mouseDistance, keyTime, zoned, hex, hashColor, mutedColor, fmtDate, fmtDateLong, fmtRange, pct, weekStart, hourLabel, today, addDays, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
 import * as api from '../api.js';
 import { columns, heatmap, donut } from '../charts.js';
 import { keyboardHeat, topKeys } from '../keyboard.js';
@@ -89,13 +89,13 @@ export function mount(el, params) {
     liveInput = null;
     let days = d.days;
     if (st.p === 'all') {
-      const firstIdx = days.findIndex((x) => x.active > 0);
+      const firstIdx = days.findIndex((x) => x.active > 0 || x.input.keys || inputClicks(x.input));
       days = firstIdx >= 0 ? days.slice(firstIdx) : [];
     }
     days = days.filter((x) => x.date <= today());
     const activeDays = days.filter((x) => x.active > 0);
     const n = activeDays.length || 1;
-    const dayStart = (k) => parseKey(k).getTime() / 1000;
+    const dayStart = keyTime;
     const avgStart = activeDays.length ? activeDays.reduce((s, x) => s + (x.first - dayStart(x.date)), 0) / activeDays.length : 0;
     const avgEnd = activeDays.length ? activeDays.reduce((s, x) => s + (x.last - dayStart(x.date)), 0) / activeDays.length : 0;
 
@@ -114,7 +114,9 @@ export function mount(el, params) {
       tile(t('Tagged'), dur(d.tagged), d.active ? pct(d.tagged, d.active) + ' ' + t('of active time') : null, 't-tag', delta(d.tagged, p && p.tagged)),
       tile(t('Average start'), activeDays.length ? fmtSec(avgStart) : '—', activeDays.length ? t('Average end') + ' ' + fmtSec(avgEnd) : null));
 
-    if (!d.active && !d.away) {
+    const inp = d.input;
+    const used = d.active || d.away; // days imported from KeyStats have input only
+    if (!used && !inp.keys && !inputClicks(inp)) {
       cards.activity = h('section', { class: 'card' }, empty('stats', t('No data for this period'), t('Pick another range, or import your ManicTime history in Settings → Data.')));
       return cards;
     }
@@ -135,12 +137,13 @@ export function mount(el, params) {
     });
     const dayNames = [];
     for (let i = 0; i < 7; i++) dayNames.push(fmtDate(dateKey(new Date(2024, 0, 1 + i)), { weekday: 'short' }));
-    cards.activity = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('activity', 16), h('h3', null, t('Activity')), h('div', { class: 'spacer' }),
-      h('span', { class: 'legend' }, h('span', { class: 'dot', style: { background: C.active } }), t('Active'), h('span', { class: 'dot', style: { background: C.away } }), t('Away'))), chart);
-    cards.when = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('clock', 16), h('h3', null, t('When you work'))),
-      heatmap(d.heat, { days: dayNames, fmt: (v) => dur(v), weekStart: weekStart(), hourLabel }));
+    if (used) {
+      cards.activity = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('activity', 16), h('h3', null, t('Activity')), h('div', { class: 'spacer' }),
+        h('span', { class: 'legend' }, h('span', { class: 'dot', style: { background: C.active } }), t('Active'), h('span', { class: 'dot', style: { background: C.away } }), t('Away'))), chart);
+      cards.when = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('clock', 16), h('h3', null, t('When you work'))),
+        heatmap(d.heat, { days: dayNames, fmt: (v) => dur(v), weekStart: weekStart(), hourLabel }));
+    }
 
-    const inp = d.input;
     if (inp.keys || inputClicks(inp)) {
       const Ci = { keys: cssVar('--accent'), clicks: cssVar('--active') };
       const tKeys = tile(t('Keys'), ''), tClicks = tile(t('Clicks'), '', ' '), tMouse = tile(t('Mouse'), ''), tScroll = tile(t('Scroll'), '');
@@ -234,6 +237,7 @@ export function mount(el, params) {
       // Nothing counted yet: the first key or click brings the tiles in.
       liveInput = (n) => { if (n.keys || inputClicks(n)) { liveInput = null; render(); } };
     }
+    if (!used) return cards;
 
     cards.focus = focusCard(d);
     cards.rhythm = rhythmCard(d, days, dayNames);
@@ -274,7 +278,7 @@ export function mount(el, params) {
       h('thead', null, h('tr', null, [t('Date'), t('Start'), t('End'), t('Day length'), t('Active'), t('Away'), t('Tagged')].map((x) => h('th', null, x)))),
       h('tbody', null, days.slice().reverse().filter((x) => x.active || x.away).slice(0, 400).map((x) => h('tr', { class: 'click', onClick: () => go('day/' + x.date) },
         h('td', null, fmtDate(x.date, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })),
-        h('td', null, x.first ? clock(x.first) : '—'), h('td', null, x.last ? fmtSec(x.last - parseKey(x.date).getTime() / 1000) : '—'),
+        h('td', null, x.first ? clock(x.first) : '—'), h('td', null, x.last ? fmtSec(x.last - keyTime(x.date)) : '—'),
         h('td', null, x.first ? dur(x.last - x.first) : '—'), h('td', null, dur(x.active)), h('td', null, dur(x.away)), h('td', null, dur(x.tagged))))));
     cards.attendance = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('day', 16), h('h3', null, t('Attendance'))), h('div', { class: 'table-wrap' }, att));
     return cards;
@@ -286,7 +290,7 @@ export function mount(el, params) {
     const f = d.focus;
     const hours = d.active / 3600;
     const [ls, le] = f.longest;
-    const lsDay = ls ? dateKey(new Date(ls * 1000)) : '';
+    const lsDay = ls ? dateKey(zoned(ls)) : '';
     const names = ['< 15m', '15–30m', '30m–1h', '1–2h', '2h+'];
     const most = Math.max(1, ...f.lengths);
     return h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('timer', 16), h('h3', null, t('Focus'))),
@@ -461,7 +465,5 @@ function previous(s, from, to) {
 
 function fmtSec(s) {
   if (s >= 86400 - 30) return '24:00';
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return clock(d.getTime() / 1000 + s);
+  return clock(keyTime(today()) + s);
 }

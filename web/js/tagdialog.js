@@ -1,7 +1,7 @@
 // Dialog for adding or editing a tag segment.
 import { h, modal, tagInput, toggle, button, toast, confirmDialog, icon } from './ui.js';
 import { t } from './i18n.js';
-import { dur, durLong, clock } from './fmt.js';
+import { dur, durLong, clock, zoned, unzoned } from './fmt.js';
 import * as api from './api.js';
 import { state, loadTags } from './state.js';
 import { mod } from './platform.js';
@@ -9,15 +9,15 @@ import { mod } from './platform.js';
 const pad = (n) => String(n).padStart(2, '0');
 
 function timeValue(ts) {
-  const d = new Date(ts * 1000);
+  const d = zoned(ts);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function applyTime(ts, value) {
-  const d = new Date(ts * 1000);
+  const d = zoned(ts);
   const [hh, mm, ss] = value.split(':').map(Number);
   d.setHours(hh || 0, mm || 0, ss || 0, 0);
-  return Math.floor(d.getTime() / 1000);
+  return unzoned(d);
 }
 
 /**

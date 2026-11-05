@@ -1,7 +1,7 @@
 // Screenshot gallery and lightbox.
 import { h, clear, icon, button, empty, pickDate, toast } from '../ui.js';
 import { t } from '../i18n.js';
-import { clock, fmtDateLong, today, addDays, bytes, hourLabel } from '../fmt.js';
+import { clock, fmtDateLong, today, addDays, bytes, hourLabel, zoned } from '../fmt.js';
 import * as api from '../api.js';
 import { state } from '../state.js';
 import { go } from '../router.js';
@@ -63,7 +63,7 @@ export function mount(el, params) {
     }
     let hour = -1, section;
     list.forEach((ts, i) => {
-      const hr = new Date(ts * 1000).getHours();
+      const hr = zoned(ts).getHours();
       if (hr !== hour) {
         hour = hr;
         section = h('div', { class: 'shots-row' });

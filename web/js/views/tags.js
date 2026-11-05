@@ -1,7 +1,7 @@
 // Tag manager: every tag combination with totals, colour, billable, rename, delete.
 import { h, clear, button, toggle, empty, promptDialog, confirmDialog, toast, icon } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, hex, fmtDate, dateKey } from '../fmt.js';
+import { dur, hex, fmtDate, dateKey, zoned } from '../fmt.js';
 import * as api from '../api.js';
 import { loadTags, state } from '../state.js';
 import { go } from '../router.js';
@@ -34,7 +34,7 @@ export function mount(el) {
           h('td', null, h('div', { class: 'tag-cell' }, color, h('span', { class: 'crumbs' }, parts.map((p, i) => [i ? h('span', { class: 'sep' }, '›') : null, h('span', null, p)])))),
           h('td', { class: 'num' }, dur(r.secs)),
           h('td', { class: 'num' }, r.count),
-          h('td', null, h('button', { class: 'link', type: 'button', onClick: () => go('day/' + dateKey(new Date(r.last * 1000))) }, fmtDate(dateKey(new Date(r.last * 1000)), { year: 'numeric', month: 'short', day: 'numeric' }))),
+          h('td', null, h('button', { class: 'link', type: 'button', onClick: () => go('day/' + dateKey(zoned(r.last))) }, fmtDate(dateKey(zoned(r.last)), { year: 'numeric', month: 'short', day: 'numeric' }))),
           h('td', null, toggle(r.billable, async (v) => { await api.post('tags/meta', { tag: r.tags, color: r.color, billable: v }); load(); })),
           h('td', { class: 'actions' },
             button('', { icon: 'edit', small: true, variant: 'ghost', title: t('Rename'), onClick: () => rename(r.tags) }),

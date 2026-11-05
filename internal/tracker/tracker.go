@@ -682,10 +682,12 @@ func (t *Tracker) countInput(nowS int64, in store.Input, keys map[uint16]int64) 
 	if slot := nowS - nowS%store.InputSlot; slot != t.inputSlot {
 		t.saveInput()
 		t.inputSlot = slot
-		if day := store.DayStart(nowS); day != t.inputDay {
-			t.inputDay = day
-			t.inputToday, t.inputTodayApps = t.db.InputOn(day)
-		}
+	}
+	if day := store.DayStart(nowS); day != t.inputDay { // a new day, or another timezone
+		t.saveInput()
+		t.inputDay = day
+		t.inputToday, t.inputTodayApps = t.db.InputOn(day)
+		t.inputNew = true
 	}
 	if in == (store.Input{}) {
 		return
@@ -714,7 +716,7 @@ func (t *Tracker) countInput(nowS int64, in store.Input, keys map[uint16]int64) 
 
 func (t *Tracker) saveInput() {
 	if t.input != (store.Input{}) {
-		t.db.SaveInput(t.inputSlot, t.inputDay, t.input, t.inputApps, t.inputKeys)
+		t.db.SaveInput(t.inputSlot, store.DayStart(t.inputSlot), t.input, t.inputApps, t.inputKeys)
 		t.input, t.inputApps, t.inputKeys = store.Input{}, nil, nil
 	}
 }

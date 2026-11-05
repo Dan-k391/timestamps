@@ -2,7 +2,7 @@
 // range selection (with snapping), app icons, screenshot thumbnails and a
 // 24-hour overview strip whose window can be dragged and resized. With
 // opts.fill the lanes stretch or shrink to fill the host's height.
-import { clock } from './fmt.js';
+import { clock, utcOffset } from './fmt.js';
 import { icon } from './ui.js';
 
 const TICKS = [60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600];
@@ -532,7 +532,7 @@ export class Timeline {
     let step = TICKS[TICKS.length - 1];
     for (const s of TICKS) { if ((s / span) * pw >= 84) { step = s; break; } }
     const minor = step >= 3600 ? step / 4 : step >= 600 ? step / 5 : step / 2;
-    const tz = new Date(vs * 1000).getTimezoneOffset() * 60;
+    const tz = -utcOffset(vs);
     ctx.font = `500 12px ${FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';

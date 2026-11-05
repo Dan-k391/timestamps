@@ -1,7 +1,7 @@
 // Settings: general, tracking, screenshots, browser extension, data, shortcuts, about.
 import { h, clear, button, toggle, select, toast, confirmDialog, icon, pickDate } from '../ui.js';
 import { t } from '../i18n.js';
-import { bytes, today, addDays, fmtDate, dateKey, fmtDateLong } from '../fmt.js';
+import { bytes, today, addDays, fmtDate, dateKey, fmtDateLong, zoned } from '../fmt.js';
 import * as api from '../api.js';
 import { state, emit } from '../state.js';
 import { go } from '../router.js';
@@ -16,6 +16,18 @@ const SECTIONS = [
   ['shortcuts', 'keyboard', 'Keyboard shortcuts'],
   ['about', 'info', 'About'],
 ];
+
+// The choices for the timezone: the system's, then every zone with its offset.
+function timeZones(current) {
+  const names = new Set(['UTC', ...(Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [])]);
+  if (current) names.add(current);
+  const offset = (z) => {
+    try {
+      return new Intl.DateTimeFormat('en-US', { timeZone: z, timeZoneName: 'longOffset' }).formatToParts().find((p) => p.type === 'timeZoneName').value;
+    } catch (_) { return ''; }
+  };
+  return [['', t('System default')], ...[...names].map((z) => [z, `${z.replace(/_/g, ' ')} (${offset(z)})`])];
+}
 
 export function mount(el, params) {
   el.className = 'view settings-view';
@@ -91,6 +103,7 @@ export function mount(el, params) {
         themePicker('light', t('Light theme'), t('Used when the app is light.')),
         row(t('Duration format'), select([['hm', '1h 05m'], ['clock', '1:05:00'], ['decimal', '1.08 h']], s.durationFormat, (v) => save({ durationFormat: v }))),
         row(t('Clock'), select([['24', t('24-hour')], ['12', t('12-hour')]], s.clock24 ? '24' : '12', (v) => save({ clock24: v === '24' }))),
+        row(t('Time zone'), select(timeZones(s.timezone), s.timezone || '', (v) => save({ timezone: v }))),
         row(t('First day of the week'), select([[1, t('Monday')], [0, t('Sunday')]], s.weekStart, (v) => save({ weekStart: +v })))),
       group(t('Startup and window'),
         row(t(byOS('Open at login', 'Start with Windows')), sw('runAtStartup'), t(byOS('Starts in the menu bar.', 'Starts minimized in the notification area.'))),
@@ -267,6 +280,18 @@ export function mount(el, params) {
     };
     api.get('import/status').then(drawImport);
 
+    const ksPath = h('input', { class: 'input mono', value: info.keystats || '', placeholder: 'history.json' });
+    const ksResult = h('div');
+    const ksImport = async () => {
+      if (!ksPath.value) return;
+      if (!(await confirmDialog(t('Import history from KeyStats? Days imported before are replaced. Only days before Timestamps started counting are imported, so nothing is counted twice.'), { ok: t('Import') }))) return;
+      clear(ksResult);
+      try {
+        const r = await api.post('import/keystats', { path: ksPath.value });
+        ksResult.append(h('p', { class: 'ok' }, icon('check', 14), t('Imported {0} days, {1} key presses.', r.days, r.keys.toLocaleString())));
+      } catch (err) { ksResult.append(h('p', { class: 'error' }, icon('alert', 14), err.message)); }
+    };
+
     let expTl = 'apps', expFrom = addDays(today(), -6), expTo = today(), expFmt = 'csv';
     const dateBtn = (get, set) => {
       const b = h('button', { class: 'btn date-btn', type: 'button' }, icon('day', 14), h('span', null, get()));
@@ -279,6 +304,10 @@ export function mount(el, params) {
       group(t('Import from ManicTime'),
         h('p', { class: 'muted' }, info.manictime ? t('ManicTime data was found on this computer.') : t('Choose the ManicTimeReports.db file from your ManicTime data folder.')),
         imp),
+      group(t('Import from KeyStats'),
+        h('div', { class: 'import' }, ksResult, h('div', { class: 'inline grow' }, ksPath,
+          button(t('Browse…'), { small: true, onClick: async () => { const r = await api.post('pick-file', { title: t('Choose the KeyStats history'), filter: 'KeyStats history (*.json)\0*.json\0All files\0*.*\0' }); if (r.path) ksPath.value = r.path; } }),
+          button(t('Import'), { small: true, variant: 'primary', icon: 'upload', onClick: ksImport })))),
       group(t('Export'),
         row(t('Timeline'), select([['apps', t('Applications')], ['docs', t('Documents')], ['usage', t('Computer usage')], ['tags', t('Tags')]], expTl, (v) => (expTl = v))),
         row(t('Range'), h('div', { class: 'inline' }, dateBtn(() => expFrom, (v) => (expFrom = v)), h('span', { class: 'muted' }, '–'), dateBtn(() => expTo, (v) => (expTo = v)))),
@@ -286,9 +315,9 @@ export function mount(el, params) {
         row('', button(t('Export'), { icon: 'download', variant: 'primary', small: true, onClick: () => api.download('export', { timeline: expTl, from: expFrom, to: expTo, format: expFmt }) }))),
       group(t('Backup'),
         row(t('Database'), h('div', { class: 'inline' }, h('span', { class: 'mono path' }, info.dataDir + byOS('/', '\\') + 'timestamps.db'), h('span', { class: 'muted' }, bytes(info.dbSize)))),
-        row(t('Records'), h('span', { class: 'muted' }, t('{0} app, {1} document, {2} usage, {3} tag records · since {4}', info.db.Apps.toLocaleString(), info.db.Docs.toLocaleString(), info.db.Usage.toLocaleString(), info.db.Tags.toLocaleString(), info.db.First ? fmtDateLong(dateKey(new Date(info.db.First * 1000))) : '—'))),
+        row(t('Records'), h('span', { class: 'muted' }, t('{0} app, {1} document, {2} usage, {3} tag records · since {4}', info.db.Apps.toLocaleString(), info.db.Docs.toLocaleString(), info.db.Usage.toLocaleString(), info.db.Tags.toLocaleString(), info.db.First ? fmtDateLong(dateKey(zoned(info.db.First))) : '—'))),
         row(t('Automatic backup'), select([[0, t('Off')], [1, t('Daily')], [7, t('Weekly')], [30, t('Monthly')]], s.backupDays, (v) => save({ backupDays: +v })),
-          info.lastBackup ? t('Last backup: {0}', new Date(+info.lastBackup * 1000).toLocaleString()) : null),
+          info.lastBackup ? t('Last backup: {0}', zoned(+info.lastBackup).toLocaleString()) : null),
         row(t('Backups to keep'), num('backupKeep', 1, 100)),
         row(t('Folder'), h('div', { class: 'inline' }, h('span', { class: 'mono path' }, info.dataDir + '\\backups'), button(t('Open'), { small: true, icon: 'folder', onClick: () => api.post('open', { target: info.dataDir + '\\backups' }).catch(() => toast(t('No backups yet'))) }))),
         row('', button(t('Back up now'), { icon: 'database', small: true, onClick: async () => { const r = await api.post('backup'); toast(t('Backup saved to {0}', r.path), { type: 'ok', timeout: 6000 }); } }))),

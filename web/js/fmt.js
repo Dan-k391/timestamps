@@ -2,12 +2,59 @@
 import { locale } from './i18n.js';
 
 const cfg = { dur: 'hm', clock24: true, weekStart: 1 };
+let zone = null; // formats a time in the chosen timezone; null: the system's
 
 export function configure(s) {
   cfg.dur = s.durationFormat || 'hm';
   cfg.clock24 = s.clock24 !== false;
   cfg.weekStart = s.weekStart ?? 1;
+  zone = null;
+  try {
+    if (s.timezone) zone = new Intl.DateTimeFormat('en-US', { timeZone: s.timezone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+  } catch (_) { /* an unknown name counts as the system's, as it does on the server */ }
 }
+
+function zoneParts(ts) {
+  const p = {};
+  for (const x of zone.formatToParts(ts * 1000)) p[x.type] = +x.value;
+  return p;
+}
+
+/** Seconds east of UTC at ts, in the chosen timezone. */
+export function utcOffset(ts) {
+  if (!zone) return -new Date(ts * 1000).getTimezoneOffset() * 60;
+  const p = zoneParts(ts);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) / 1000 - Math.floor(ts);
+}
+
+// Its fields read and write UTC, which has no gaps: the chosen timezone's wall
+// clock may name a time the system's daylight saving skips.
+class Wall extends Date {
+  getFullYear() { return this.getUTCFullYear(); }
+  getMonth() { return this.getUTCMonth(); }
+  getDate() { return this.getUTCDate(); }
+  getHours() { return this.getUTCHours(); }
+  getMinutes() { return this.getUTCMinutes(); }
+  getSeconds() { return this.getUTCSeconds(); }
+  setHours(...a) { return this.setUTCHours(...a); }
+  toLocaleString(l, o) { return super.toLocaleString(l, { ...o, timeZone: 'UTC' }); }
+}
+
+/** A Date whose fields (getHours…) read as ts in the chosen timezone. */
+export function zoned(ts) {
+  if (!zone) return new Date(ts * 1000);
+  const p = zoneParts(ts);
+  return new Wall(Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second));
+}
+
+/** The time in seconds of a Date whose fields are in the chosen timezone. */
+export function unzoned(d) {
+  if (!zone) return Math.floor(d.getTime() / 1000);
+  const wall = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()) / 1000;
+  return wall - utcOffset(wall - utcOffset(wall));
+}
+
+const nowDate = () => zoned(Date.now() / 1000);
 
 export const weekStart = () => cfg.weekStart;
 
@@ -44,7 +91,7 @@ export function mouseDistance(px) {
 const pad = (n) => String(n).padStart(2, '0');
 
 export function clock(ts, seconds = false) {
-  const d = new Date(ts * 1000);
+  const d = zoned(ts);
   let h = d.getHours();
   const tail = seconds ? ':' + pad(d.getSeconds()) : '';
   if (cfg.clock24) return `${pad(h)}:${pad(d.getMinutes())}${tail}`;
@@ -59,7 +106,7 @@ export function hourLabel(h) {
   return `${hh % 12 || 12} ${hh >= 12 ? 'PM' : 'AM'}`;
 }
 
-export function dateKey(d = new Date()) {
+export function dateKey(d = nowDate()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
@@ -68,13 +115,16 @@ export function parseKey(k) {
   return new Date(y, m - 1, d);
 }
 
+/** When a day starts, in seconds. */
+export const keyTime = (k) => unzoned(zone ? new Wall(k) : parseKey(k));
+
 export function addDays(k, n) {
   const d = parseKey(k);
   d.setDate(d.getDate() + n);
   return dateKey(d);
 }
 
-export function today() { return dateKey(new Date()); }
+export function today() { return dateKey(); }
 
 export function startOfWeek(k) {
   const d = parseKey(k);

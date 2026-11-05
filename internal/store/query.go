@@ -84,7 +84,7 @@ func clip(s, e, a, b int64) int64 {
 // Earliest returns the local midnight of the first recorded day (0 if none).
 func (db *DB) Earliest() int64 {
 	var m sql.NullInt64
-	db.sql.QueryRow("SELECT MIN(s) FROM usage_seg").Scan(&m)
+	db.sql.QueryRow("SELECT MIN(s) FROM (SELECT MIN(s) s FROM usage_seg UNION ALL SELECT MIN(t) FROM input)").Scan(&m)
 	if !m.Valid {
 		return 0
 	}
@@ -106,12 +106,14 @@ func (db *DB) Day(a, b int64) (*Day, error) {
 	for t := a; t < b; t += 3600 {
 		bounds = append(bounds, t)
 	}
-	if d.InputHours, err = db.inputDays(append(bounds, b)); err != nil {
+	if d.InputHours, err = db.inputDays(append(bounds, b), true); err != nil {
 		return nil, err
 	}
-	for _, in := range d.InputHours {
-		d.Input.Add(in)
+	total, err := db.inputDays([]int64{a, b}, false)
+	if err != nil {
+		return nil, err
 	}
+	d.Input = total[0]
 	if d.InputApps, err = db.inputApps(a, b); err != nil {
 		return nil, err
 	}

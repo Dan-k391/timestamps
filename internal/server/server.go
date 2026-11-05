@@ -35,7 +35,7 @@ import (
 )
 
 // Version is the application version shown in the UI.
-const Version = "1.3.0"
+const Version = "1.4.0"
 
 // Ports tried in order; the browser extension probes the same list.
 var Ports = []int{47613, 47614, 47615, 47616}
@@ -778,6 +778,10 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 		s.events(w, r)
 
 	case "info":
+		ks := filepath.Join(os.Getenv("LOCALAPPDATA"), `KeyStats\history.json`)
+		if _, err := os.Stat(ks); err != nil {
+			ks = ""
+		}
 		mt := filepath.Join(os.Getenv("LOCALAPPDATA"), `Finkit\ManicTime\ManicTimeReports.db`)
 		if _, err := os.Stat(mt); err != nil {
 			mt = ""
@@ -791,7 +795,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 		}
 		writeJSON(w, r, map[string]any{
 			"version": Version, "dataDir": s.DataDir, "extDir": s.ExtDir, "dbSize": size, "db": s.DB.Info(),
-			"manictime": mt, "ext": s.T.Ext.Connected(), "url": s.URL(), "shotsDir": s.T.Shots.Dir(), "shotsSize": dirSize(s.T.Shots.Dir()), "thumbsSize": dirSize(s.T.Shots.ThumbDir()),
+			"manictime": mt, "keystats": ks, "ext": s.T.Ext.Connected(), "url": s.URL(), "shotsDir": s.T.Shots.Dir(), "shotsSize": dirSize(s.T.Shots.Dir()), "thumbsSize": dirSize(s.T.Shots.ThumbDir()),
 			"shotsDefault": s.defaultShotsDir(),
 			"lastBackup":   s.DB.Meta("backup.last"),
 		})
@@ -804,6 +808,19 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 		}
 		s.startImport(req.Path)
 		writeJSON(w, r, s.importState())
+
+	case "import/keystats":
+		var req struct{ Path string }
+		if err := readJSON(r, &req); err != nil || req.Path == "" {
+			fail(w, errors.New("missing path"))
+			return
+		}
+		res, err := s.DB.ImportKeyStats(req.Path)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, r, res)
 
 	case "import/status":
 		writeJSON(w, r, s.importState())

@@ -1,7 +1,7 @@
 // App shell: sidebar, routing, live status, stopwatch, away prompt, theme.
 import { h, clear, icon, button, modal, tagInput, toast, appIcon, dropdown, toggle } from './ui.js';
 import { t, setLang } from './i18n.js';
-import { configure, dur, clock, today, resetColors } from './fmt.js';
+import { configure, dur, clock, today, resetColors, zoned } from './fmt.js';
 import * as api from './api.js';
 import { state, refreshLive, loadTags, onChange } from './state.js';
 import { go, parse, onRoute } from './router.js';
@@ -79,7 +79,7 @@ function ringEnds(f, r, w) {
 }
 let logoKey = '';
 function drawLogo() {
-  const d = new Date();
+  const d = zoned(Date.now() / 1000);
   const f = Math.floor((d.getHours() * 60 + d.getMinutes()) / 5) / 288; // 5-minute steps
   const paused = state.live && state.live.state === 'paused';
   const key = f + '/' + paused;

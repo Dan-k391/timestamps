@@ -73,7 +73,7 @@ func (db *DB) InputOn(day int64) (Input, map[int64]Input) {
 	if err != nil {
 		apps = map[int64]Input{}
 	}
-	in, err := db.inputDays([]int64{day, next})
+	in, err := db.inputDays([]int64{day, next}, false)
 	if err != nil {
 		return Input{}, apps
 	}
@@ -127,10 +127,15 @@ func (db *DB) inputDetail(st *Stats, a, b int64) error {
 	return nil
 }
 
-// inputDays sums the input between each two of the ascending bounds.
-func (db *DB) inputDays(bounds []int64) ([]Input, error) {
+// inputDays sums the input between each two of the ascending bounds; timed
+// leaves out imported days, which have no time of day.
+func (db *DB) inputDays(bounds []int64, timed bool) ([]Input, error) {
 	out := make([]Input, len(bounds)-1)
-	rows, err := db.sql.Query("SELECT t, keys, lclick, rclick, mclick, oclick, move, scroll FROM input WHERE t >= ? AND t < ? ORDER BY t", bounds[0], bounds[len(bounds)-1])
+	where := ""
+	if timed {
+		where = " AND src = 0"
+	}
+	rows, err := db.sql.Query("SELECT t, keys, lclick, rclick, mclick, oclick, move, scroll FROM input WHERE t >= ? AND t < ?"+where+" ORDER BY t", bounds[0], bounds[len(bounds)-1])
 	if err != nil {
 		return nil, err
 	}

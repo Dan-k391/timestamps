@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 	_ "time/tzdata"
+
+	"timestamps/internal/store"
 )
 
 func writeFile(t *testing.T, p string) {
@@ -58,8 +60,8 @@ func TestRepeatedHourNames(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
-	defer func(l *time.Location) { time.Local = l }(time.Local)
-	time.Local = loc
+	defer func(l *time.Location) { store.SystemZone = l }(store.SystemZone)
+	store.SystemZone = loc
 	first := time.Date(2026, 10, 25, 0, 2, 53, 0, time.UTC).Unix()  // 01:02:53 BST
 	second := time.Date(2026, 10, 25, 1, 2, 53, 0, time.UTC).Unix() // 01:02:53 GMT
 	normal := time.Date(2026, 10, 25, 3, 0, 0, 0, time.UTC).Unix()
@@ -110,5 +112,20 @@ func TestThumbnails(t *testing.T) {
 		if exists(p) {
 			t.Errorf("%s not removed", p)
 		}
+	}
+}
+
+// The path of a screenshot isn't stored: it must not follow the chosen timezone.
+func TestShotNameIgnoresZone(t *testing.T) {
+	loc, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Skip(err)
+	}
+	defer func(l *time.Location) { time.Local = l }(time.Local)
+	ts := time.Date(2026, 11, 5, 23, 30, 0, 0, store.SystemZone).Unix()
+	day, name := shotName(ts)
+	time.Local = loc
+	if d, n := shotName(ts); d != day || n != name {
+		t.Errorf("%s/%s became %s/%s", day, name, d, n)
 	}
 }

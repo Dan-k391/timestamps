@@ -79,6 +79,7 @@ type DB struct {
 	version atomic.Int64 // bumped on every write, used as a cache key by the UI
 	// How long a time away lasts at least to count as off, in seconds (0 =
 	// never; see usageRows). Kept in step with the settings by SaveSettings.
+	zone     string // Settings.Timezone in use, under settingsMu
 	longAway atomic.Int64
 }
 
@@ -99,6 +100,7 @@ func Open(path string) (*DB, error) {
 	addColumn(s, "site_icon", "color", "TEXT NOT NULL DEFAULT ''")
 	addColumn(s, "input", "mclick", "INTEGER NOT NULL DEFAULT 0")
 	addColumn(s, "input_app", "mclick", "INTEGER NOT NULL DEFAULT 0")
+	addColumn(s, "input", "src", "INTEGER NOT NULL DEFAULT 0") // 1: a day imported from KeyStats
 	db := &DB{sql: s, apps: map[string]int64{}, docs: map[string]int64{}, titles: map[string]int64{}, maxLen: map[string]*int64{}}
 	for _, t := range []string{TUsage, TApp, TDoc, TTag} {
 		var m sql.NullInt64
@@ -106,7 +108,10 @@ func Open(path string) (*DB, error) {
 		v := m.Int64
 		db.maxLen[t] = &v
 	}
-	db.longAway.Store(db.Settings().longAway())
+	st := db.Settings()
+	db.longAway.Store(st.longAway())
+	db.zone = st.Timezone
+	applyZone(st.Timezone)
 	return db, nil
 }
 

@@ -459,7 +459,7 @@ export function pickDate(anchor, value, { marks } = {}) {
       const first = new Date(cur);
       const offset = (first.getDay() - ws + 7) % 7;
       first.setDate(1 - offset);
-      const todayKey = dateKey(new Date());
+      const todayKey = dateKey();
       for (let i = 0; i < 42; i++) {
         const d = new Date(first);
         d.setDate(first.getDate() + i);

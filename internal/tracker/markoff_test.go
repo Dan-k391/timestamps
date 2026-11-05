@@ -54,7 +54,7 @@ func TestDeleteRangeInput(t *testing.T) {
 // A private app's input counts for the app, but not by key.
 func TestAppInput(t *testing.T) {
 	now := time.Now().Unix()
-	tr := &Tracker{appRef: 7, inputSlot: now - now%store.InputSlot}
+	tr := &Tracker{appRef: 7, inputSlot: now - now%store.InputSlot, inputDay: store.DayStart(now)}
 	in := store.Input{Keys: 2, Left: 1}
 	tr.countInput(now, in, map[uint16]int64{0x1E: 2})
 	tr.countInput(now, in, map[uint16]int64{0x1E: 2})
