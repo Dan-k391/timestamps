@@ -23,6 +23,59 @@ func TestSoundKeepsActive(t *testing.T) {
 	}
 }
 
+// Deleting today clears the totals in memory too, and what isn't saved yet.
+func TestDeleteRangeInput(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Now().Unix()
+	day := store.DayStart(now)
+	db.SaveInput(now-now%store.InputSlot, day, store.Input{Keys: 100}, nil, nil)
+	tr := &Tracker{db: db, inputSlot: now - now%store.InputSlot, inputDay: day, inputToday: store.Input{Keys: 105}, input: store.Input{Keys: 5}}
+
+	if err := tr.DeleteRange(day-2*86400, day-86400, []string{"usage"}); err != nil {
+		t.Fatal(err)
+	}
+	if tr.inputToday.Keys != 105 || tr.inputNew {
+		t.Errorf("another day deleted: today %+v, new %v", tr.inputToday, tr.inputNew)
+	}
+	tr.input = store.Input{Keys: 5}
+	if err := tr.DeleteRange(day, day+86400, []string{"usage"}); err != nil {
+		t.Fatal(err)
+	}
+	tr.saveInput()
+	if stored, _ := db.InputOn(day); tr.inputToday.Keys != 0 || !tr.inputNew || stored.Keys != 0 {
+		t.Errorf("today deleted: memory %+v, stored %+v, new %v", tr.inputToday, stored, tr.inputNew)
+	}
+}
+
+// A private app's input counts for the app, but not by key.
+func TestAppInput(t *testing.T) {
+	now := time.Now().Unix()
+	tr := &Tracker{appRef: 7, inputSlot: now - now%store.InputSlot}
+	in := store.Input{Keys: 2, Left: 1}
+	tr.countInput(now, in, map[uint16]int64{0x1E: 2})
+	tr.countInput(now, in, map[uint16]int64{0x1E: 2})
+	tr.appRef, tr.appPrivate = 8, true
+	tr.countInput(now, in, map[uint16]int64{0x1E: 9})
+	tr.countInput(now, store.Input{}, nil)
+	if a := tr.inputApps[7]; a.Keys != 4 || a.Left != 2 || tr.inputApps[8].Keys != 2 || len(tr.inputApps) != 2 {
+		t.Errorf("apps: %+v", tr.inputApps)
+	}
+	if tr.inputKeys[0x1E] != 4 {
+		t.Errorf("keys: %v", tr.inputKeys)
+	}
+	if tr.input.Keys != 6 || tr.inputToday.Keys != 6 || tr.inputTodayApps[8].Keys != 2 {
+		t.Errorf("totals: %+v, today %+v, %+v", tr.input, tr.inputToday, tr.inputTodayApps)
+	}
+	ev := tr.inputEvent()
+	if ev == nil || ev.Input.Keys != 6 || ev.App != 8 || ev.AppInput.Keys != 2 || ev.Keys[0x1E] != 4 || tr.inputEvent() != nil {
+		t.Errorf("event: %+v", ev)
+	}
+}
+
 // After MarkOff the time is off until the next input, once the click's own
 // input is past; locking the screen doesn't end it.
 func TestMarkOffUntilInput(t *testing.T) {
@@ -80,6 +133,7 @@ func TestMarkOffCloses(t *testing.T) {
 	tr.usage = seg{id: db.BeginUsage(s, s, store.Active), s: s, e: s}
 	tr.offAt = now // within offGrace of any input, so step needs no real idle time
 	st := db.Settings()
+	st.TrackInput = false
 	if ev := tr.step(now, &st); ev != "state" || tr.state != "off" || tr.usage.id != 0 {
 		t.Fatalf("step: event %q, state %q, usage row %d", ev, tr.state, tr.usage.id)
 	}

@@ -20,17 +20,22 @@ type Tag struct {
 // Day is everything the day view needs, in a compact form: segments are
 // [start, end, ref...] tuples and referenced names are sent once.
 type Day struct {
-	From   int64              `json:"from"`
-	To     int64              `json:"to"`
-	Usage  [][3]int64         `json:"usage"`
-	Apps   [][4]int64         `json:"apps"`
-	Docs   [][4]int64         `json:"docs"`
-	Tags   []Tag              `json:"tags"`
-	Shots  []int64            `json:"shots"`
-	AppMap map[int64]AppInfo  `json:"appMap"`
-	TitMap map[int64]string   `json:"titleMap"`
-	DocMap map[int64]DocInfo  `json:"docMap"`
-	TagMap map[string]TagMeta `json:"tagMap"`
+	From  int64      `json:"from"`
+	To    int64      `json:"to"`
+	Usage [][3]int64 `json:"usage"`
+	Apps  [][4]int64 `json:"apps"`
+	Docs  [][4]int64 `json:"docs"`
+	Tags  []Tag      `json:"tags"`
+	Shots []int64    `json:"shots"`
+	Input Input      `json:"input"`
+	// By hour from the start of the range.
+	InputHours []Input `json:"inputHours"`
+	// By app id.
+	InputApps map[int64]Input    `json:"inputApps"`
+	AppMap    map[int64]AppInfo  `json:"appMap"`
+	TitMap    map[int64]string   `json:"titleMap"`
+	DocMap    map[int64]DocInfo  `json:"docMap"`
+	TagMap    map[string]TagMeta `json:"tagMap"`
 	// Colors picked from website icons, by site (host and registrable domain).
 	SiteColors map[string]string `json:"siteColors"`
 }
@@ -97,6 +102,19 @@ func (db *DB) Day(a, b int64) (*Day, error) {
 		return nil, err
 	}
 	d.Usage = usage
+	bounds := []int64{}
+	for t := a; t < b; t += 3600 {
+		bounds = append(bounds, t)
+	}
+	if d.InputHours, err = db.inputDays(append(bounds, b)); err != nil {
+		return nil, err
+	}
+	for _, in := range d.InputHours {
+		d.Input.Add(in)
+	}
+	if d.InputApps, err = db.inputApps(a, b); err != nil {
+		return nil, err
+	}
 
 	appIDs, titleIDs, docIDs := map[int64]bool{}, map[int64]bool{}, map[int64]bool{}
 	rows, err := db.sql.Query("SELECT s, e, app, title FROM app_seg WHERE s >= ? AND s < ? AND e > ? ORDER BY s", db.lowS(TApp, a), b, a)

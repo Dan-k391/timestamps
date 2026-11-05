@@ -32,13 +32,14 @@ On a Mac, get `Timestamps-<version>-macos.zip` from the same page; see
 | Computer usage timeline (active / away / off) | Same. Away after *N* minutes of no input (retroactive from the last input), lock screen = away, sleep/hibernate gaps, playing sound keeps you active (optional). *Mark as off* (tray or window) records nothing from then until the next input, as if the computer were off. Optionally a long time away (*N* hours or more) counts as off, for a screen that never turns off. |
 | Applications timeline with window titles | Same, with real app icons and names from the executable. UWP apps resolved behind ApplicationFrameHost. |
 | Documents timeline (files and websites) | Same. **Full file paths** from Office/WPS (COM), Explorer windows, the program's command line and Windows *Recent items*; falls back to the name in the title. **Websites** read from the address bar of Chrome, Edge, Firefox, Brave, Opera, Vivaldi, 360, QQ and others via UI Automation, or from the optional browser extension. |
+| — | **Keyboard and mouse use**: key presses, left/right/middle/other clicks, mouse distance and scrolling per day, live in the day view with a chart by hour and the keys and clicks of each application, and a keyboard heatmap, the top keys as a donut and as bars, a sortable table per application and CSV/Excel export in the statistics (like [KeyStats](https://github.com/debugtheworldbot/keyStats)). Keys are kept as totals per key and day: never the order or what was typed, and keys pressed in an app set to Private are left out, except in the first second after switching to it. Nothing is counted while paused or marked off; can be switched off. On a Mac it is off until switched on, and needs Input Monitoring. |
 | Screenshots | Automatic, on by default: every 5 min while active, 1280 px JPEG (about 80 KB), unchanged screens skipped, kept 30 days. All configurable, plus "take screenshot now". |
 | Tags timeline, tag combinations (`Client, Project, Task`), notes, billable | Same. Drag to select (snaps to activity edges), E to tag, edit/split/delete/copy/paste, recent tags, autocompletion. |
 | "What were you doing while away?" | Notification and in-app prompt with recent and quick tags. |
 | Stopwatch / countdown | From the tray or sidebar; stopwatch saves its time as a tag; countdown alerts and can tag. |
 | Autotagging rules | Rules on app, title, URL, domain or file path (contains / equals / starts / ends / regex), live preview, suggestions lane in the day view, apply to a day. |
 | Day view, zoom, filter, day summary | Canvas timeline with wheel zoom, pan, 24-hour overview strip, live "now" line, hover details, filter (Ctrl+F); summaries for the day or the selection. |
-| Statistics | Totals with the change from the period before, activity by day/week/month, weekday × hour heatmap, focus sessions and app switches per hour, weekly rhythm (busiest day, peak hour, weekend share), top applications over time, top apps/sites/files/tags with drill-down, attendance table. |
+| Statistics | Blocks you can drag, resize and pin, as in the day view. Totals with the change from the period before, activity by day/week/month, weekday × hour heatmap, focus sessions and app switches per hour, weekly rhythm (busiest day, peak hour, weekend share), top applications over time, top apps/sites/files/tags with drill-down, attendance table. |
 | Timesheets | Tags × days, group by level, rounding (5–60 min, nearest/up/down, never-zero), billable only. |
 | Search | Every day where a title, app, file, website, tag or note matches. |
 | Export | CSV (UTF-8, Excel-friendly) and real .xlsx for timelines, statistics and timesheets. |
@@ -122,7 +123,8 @@ the window is open.
 ### Permissions
 
 macOS asks for each of these separately. Timestamps keeps working without
-them, recording less; missing ones are listed at the top of its menu.
+them, recording less; missing Accessibility or Screen Recording is listed at
+the top of its menu.
 
 | Permission | What it is for | Without it |
 | --- | --- | --- |
@@ -130,6 +132,7 @@ them, recording less; missing ones are listed at the top of its menu.
 | **Screen Recording** | Screenshots; window titles as a fallback | No screenshots. macOS applies it after Timestamps restarts |
 | **Automation** (asked per browser) | The address of the current tab in Safari, Chrome, Edge, Brave, Arc, Vivaldi and Opera | No websites from that browser, unless the extension is installed |
 | Notifications | Away prompts, stopwatch and countdown alerts | No banners |
+| **Input Monitoring** (only if *Count keyboard and mouse use* is on) | Counting keys, clicks, mouse distance and scrolling | No counts. Applies after switching the setting off and on |
 
 They are in *System Settings → Privacy & Security*. A rebuilt or updated app
 is a new app to macOS, so it may have to be allowed again.

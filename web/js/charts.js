@@ -4,13 +4,13 @@ import { escapeHTML } from './fmt.js';
 
 /**
  * Stacked column chart.
- * opts: { labels[], series:[{name, color, values[]}], fmt(v), sub(i)?, onClick(i)?, height }
+ * opts: { labels[], series:[{name, color, values[]}], fmt(v), sub(i)?, onClick(i)?, height, unit? (axis steps: 3600 for seconds, 10 for counts) }
  */
 export function columns(opts) {
   const { labels, series, fmt, height = 180 } = opts;
   const totals = labels.map((_, i) => series.reduce((n, s) => n + (s.values[i] || 0), 0));
   const max = Math.max(1, ...totals);
-  const nice = niceMax(max);
+  const nice = niceMax(max, opts.unit);
   const grid = h('div', { class: 'ch-grid' }, [1, 0.75, 0.5, 0.25, 0].map((f) => h('div', { class: 'ch-gl' }, h('span', null, fmt(nice * f)))));
   const cols = h('div', { class: 'ch-cols' });
   labels.forEach((lab, i) => {
@@ -37,11 +37,34 @@ export function columns(opts) {
   return h('div', { class: 'chart', style: { height: height + 'px' } }, h('div', { class: 'ch-body' }, grid, cols), axis);
 }
 
-function niceMax(v) {
-  const hours = v / 3600;
+function niceMax(v, unit = 3600) {
+  const hours = v / unit;
   const steps = [0.5, 1, 2, 4, 6, 8, 10, 12, 16, 20, 24, 40, 60, 80, 100, 160, 200, 300, 400, 600, 800, 1000, 2000, 5000];
-  for (const s of steps) if (hours <= s) return s * 3600;
-  return Math.ceil(hours / 1000) * 1000 * 3600;
+  for (const s of steps) if (hours <= s) return s * unit;
+  return Math.ceil(hours / 1000) * 1000 * unit;
+}
+
+/** Donut chart, the total in the middle. parts: [{ name, value, color }]. */
+export function donut(parts, fmt) {
+  const total = parts.reduce((n, p) => n + p.value, 0) || 1;
+  let at = 0;
+  const arcs = parts.map((p, i) => {
+    const len = (p.value / total) * 100; // a radius of 15.915 makes the circle 100 long
+    const arc = `<circle cx="21" cy="21" r="15.915" fill="none" stroke="${p.color}" stroke-width="6.5" stroke-dasharray="${Math.max(0.1, len - 0.35)} ${100 - len + 0.35}" stroke-dashoffset="${-at}" data-i="${i}"/>`;
+    at += len;
+    return arc;
+  });
+  const box = h('div', {
+    class: 'donut',
+    onMousemove: (e) => {
+      const p = parts[e.target.dataset.i];
+      if (!p) { hideTip(); return; }
+      showTip(e.clientX, e.clientY, `<div class="tip-title">${escapeHTML(p.name)}</div><div class="tip-time">${fmt(p.value)} · ${((p.value / total) * 100).toFixed(1)}%</div>`);
+    },
+    onMouseleave: hideTip,
+  });
+  box.innerHTML = `<svg viewBox="0 0 42 42"><g transform="rotate(-90 21 21)">${arcs.join('')}</g></svg><b>${escapeHTML(fmt(total))}</b>`;
+  return box;
 }
 
 /** Weekday × hour heatmap. heat[7][24] seconds, Monday first. */

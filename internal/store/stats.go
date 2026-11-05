@@ -26,24 +26,29 @@ type DayStat struct {
 	First  int64  `json:"first"`
 	Last   int64  `json:"last"`
 	Tagged int64  `json:"tagged"`
+	Input  Input  `json:"input"`
 }
 
 // Stats is the statistics view payload.
 type Stats struct {
-	From   int64        `json:"from"`
-	To     int64        `json:"to"`
-	Active int64        `json:"active"`
-	Away   int64        `json:"away"`
-	Tagged int64        `json:"tagged"`
-	Days   []DayStat    `json:"days"`
-	Heat   [7][24]int64 `json:"heat"`
-	Apps   []Total      `json:"apps"`
-	Sites  []Total      `json:"sites"`
-	Files  []Total      `json:"files"`
-	Tags   []Total      `json:"tags"`
-	Focus  Focus        `json:"focus"`
-	Trend  []Series     `json:"trend"` // the top applications, per day
-	Prev   *Period      `json:"prev,omitempty"`
+	From   int64 `json:"from"`
+	To     int64 `json:"to"`
+	Active int64 `json:"active"`
+	Away   int64 `json:"away"`
+	Tagged int64 `json:"tagged"`
+	Input  Input `json:"input"`
+	// Per application, and by scan code.
+	InputApps []InputApp       `json:"inputApps"`
+	InputKeys map[uint16]int64 `json:"inputKeys"`
+	Days      []DayStat        `json:"days"`
+	Heat      [7][24]int64     `json:"heat"`
+	Apps      []Total          `json:"apps"`
+	Sites     []Total          `json:"sites"`
+	Files     []Total          `json:"files"`
+	Tags      []Total          `json:"tags"`
+	Focus     Focus            `json:"focus"`
+	Trend     []Series         `json:"trend"` // the top applications, per day
+	Prev      *Period          `json:"prev,omitempty"`
 }
 
 // Focus breaks activity into sessions: stretches of activity with no break
@@ -102,11 +107,22 @@ func (f *Focus) add(s, e int64) {
 // Stats aggregates every timeline over [a, b). With mergeSubdomains,
 // websites are grouped by registrable domain (t.a.com + c.a.com -> a.com).
 func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
-	st := &Stats{From: a, To: b, Apps: []Total{}, Sites: []Total{}, Files: []Total{}, Tags: []Total{}, Trend: []Series{}}
+	st := &Stats{From: a, To: b, InputApps: []InputApp{}, InputKeys: map[uint16]int64{}, Apps: []Total{}, Sites: []Total{}, Files: []Total{}, Tags: []Total{}, Trend: []Series{}}
 	bounds := dayStarts(a, b)
 	st.Days = make([]DayStat, len(bounds)-1)
 	for i := range st.Days {
 		st.Days[i].Date = time.Unix(bounds[i], 0).In(time.Local).Format("2006-01-02")
+	}
+	input, err := db.inputDays(bounds)
+	if err != nil {
+		return nil, err
+	}
+	for i, in := range input {
+		st.Days[i].Input = in
+		st.Input.Add(in)
+	}
+	if err := db.inputDetail(st, a, b); err != nil {
+		return nil, err
 	}
 
 	usage, err := db.usageRows(a, b)

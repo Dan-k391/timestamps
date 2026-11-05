@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS tag_seg (id INTEGER PRIMARY KEY, s INTEGER NOT NULL, 
 CREATE TABLE IF NOT EXISTS tag_meta (tag TEXT PRIMARY KEY, color TEXT NOT NULL DEFAULT '', billable INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS shot (ts INTEGER PRIMARY KEY, w INTEGER NOT NULL, h INTEGER NOT NULL, bytes INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS site_icon (domain TEXT PRIMARY KEY, icon BLOB, checked INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS input (t INTEGER PRIMARY KEY, keys INTEGER NOT NULL, lclick INTEGER NOT NULL, rclick INTEGER NOT NULL,
+	oclick INTEGER NOT NULL, move INTEGER NOT NULL, scroll INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS input_app (day INTEGER NOT NULL, app INTEGER NOT NULL, keys INTEGER NOT NULL, lclick INTEGER NOT NULL,
+	rclick INTEGER NOT NULL, oclick INTEGER NOT NULL, move INTEGER NOT NULL, scroll INTEGER NOT NULL, PRIMARY KEY(day, app)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS input_key (day INTEGER NOT NULL, key INTEGER NOT NULL, n INTEGER NOT NULL, PRIMARY KEY(day, key)) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS ix_usage_s ON usage_seg(s, e, state);
 CREATE INDEX IF NOT EXISTS ix_app_s ON app_seg(s, e, app, title);
 CREATE INDEX IF NOT EXISTS ix_doc_s ON doc_seg(s, e, doc, app);
@@ -92,6 +97,8 @@ func Open(path string) (*DB, error) {
 	// Columns added after the first release.
 	addColumn(s, "app", "color_auto", "INTEGER NOT NULL DEFAULT 1") // 0 once a color was picked by hand
 	addColumn(s, "site_icon", "color", "TEXT NOT NULL DEFAULT ''")
+	addColumn(s, "input", "mclick", "INTEGER NOT NULL DEFAULT 0")
+	addColumn(s, "input_app", "mclick", "INTEGER NOT NULL DEFAULT 0")
 	db := &DB{sql: s, apps: map[string]int64{}, docs: map[string]int64{}, titles: map[string]int64{}, maxLen: map[string]*int64{}}
 	for _, t := range []string{TUsage, TApp, TDoc, TTag} {
 		var m sql.NullInt64

@@ -90,6 +90,14 @@ func (db *DB) DeleteRange(a, b int64, timelines []string) error {
 	if contains(timelines, "shots") {
 		tx.Exec("DELETE FROM shot WHERE ts >= ? AND ts < ?", a, b)
 	}
+	if contains(timelines, "usage") {
+		tx.Exec("DELETE FROM input WHERE t >= ? AND t < ?", a, b)
+		tx.Exec("DELETE FROM input_key WHERE day >= ? AND day < ?", a, b)
+	}
+	if contains(timelines, "usage") || contains(timelines, "apps") {
+		// shortcut: this and input_key are per day, so a range that starts mid-day keeps that day's rows; to delete them, delete the whole day.
+		tx.Exec("DELETE FROM input_app WHERE day >= ? AND day < ?", a, b)
+	}
 	db.touch()
 	return tx.Commit()
 }

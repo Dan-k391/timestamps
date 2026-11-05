@@ -8,6 +8,8 @@
 #import <ScriptingBridge/ScriptingBridge.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #include <dlfcn.h>
+#include <math.h>
+#include <stdatomic.h>
 #include "mac.h"
 
 #define K(x) ((__bridge NSString *)(x))
@@ -267,6 +269,102 @@ char *tsBrowserURL(int pid, int dialect, bool *incognito) {
 			return NULL;
 		}
 	}
+}
+
+// ---- keyboard and mouse use -----------------------------------------------
+
+static CFMachPortRef inputTap;
+static bool inputWanted; // main thread only, where inputEvent runs too
+static _Atomic int64_t inputKeys, inputLeft, inputRight, inputMiddle, inputOther, inputMove, inputScroll;
+static _Atomic int32_t inputKeyCounts[128];
+
+static void inputKey(int64_t code) {
+	inputKeys++;
+	if (code >= 0 && code < 128) inputKeyCounts[code]++;
+}
+
+// The device flag of a modifier key: set while that key is down.
+static uint64_t inputModifier(int64_t code) {
+	switch (code) {
+	case 0x38: return 0x0002;   // left Shift
+	case 0x3C: return 0x0004;   // right Shift
+	case 0x3B: return 0x0001;   // left Control
+	case 0x3E: return 0x2000;   // right Control
+	case 0x3A: return 0x0020;   // left Option
+	case 0x3D: return 0x0040;   // right Option
+	case 0x37: return 0x0008;   // left Command
+	case 0x36: return 0x0010;   // right Command
+	default: return 0;
+	}
+}
+
+static CGEventRef inputEvent(CGEventTapProxy proxy, CGEventType type, CGEventRef e, void *info) {
+	switch (type) {
+	case kCGEventTapDisabledByTimeout:
+	case kCGEventTapDisabledByUserInput:
+		if (inputWanted) CGEventTapEnable(inputTap, true); // the switch turning it off may send this too
+		break;
+	case kCGEventKeyDown:
+		if (!CGEventGetIntegerValueField(e, kCGKeyboardEventAutorepeat)) inputKey(CGEventGetIntegerValueField(e, kCGKeyboardEventKeycode));
+		break;
+	case kCGEventFlagsChanged: {
+		int64_t code = CGEventGetIntegerValueField(e, kCGKeyboardEventKeycode);
+		if (code == 0x39 || (CGEventGetFlags(e) & inputModifier(code)) != 0) inputKey(code); // 0x39: Caps Lock, an event per press
+		break;
+	}
+	case kCGEventLeftMouseDown:
+		inputLeft++;
+		break;
+	case kCGEventRightMouseDown:
+		inputRight++;
+		break;
+	case kCGEventOtherMouseDown:
+		if (CGEventGetIntegerValueField(e, kCGMouseEventButtonNumber) == 2) inputMiddle++;
+		else inputOther++;
+		break;
+	case kCGEventMouseMoved:
+	case kCGEventLeftMouseDragged:
+	case kCGEventRightMouseDragged:
+	case kCGEventOtherMouseDragged:
+		inputMove += llround(hypot(CGEventGetIntegerValueField(e, kCGMouseEventDeltaX), CGEventGetIntegerValueField(e, kCGMouseEventDeltaY)));
+		break;
+	case kCGEventScrollWheel:
+		inputScroll += 120 * (llabs(CGEventGetIntegerValueField(e, kCGScrollWheelEventDeltaAxis1)) + llabs(CGEventGetIntegerValueField(e, kCGScrollWheelEventDeltaAxis2)));
+		break;
+	default:
+		break;
+	}
+	return e;
+}
+
+void tsCaptureInput(bool on) {
+	if (on && inputTap == NULL) {
+		CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventFlagsChanged) | CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventRightMouseDown) |
+			CGEventMaskBit(kCGEventOtherMouseDown) | CGEventMaskBit(kCGEventMouseMoved) | CGEventMaskBit(kCGEventLeftMouseDragged) |
+			CGEventMaskBit(kCGEventRightMouseDragged) | CGEventMaskBit(kCGEventOtherMouseDragged) | CGEventMaskBit(kCGEventScrollWheel);
+		// shortcut: without Input Monitoring this fails and macOS asks for it; once allowed, switching it off and on (or a restart) starts it.
+		inputTap = CGEventTapCreate(kCGSessionEventTap, kCGTailAppendEventTap, kCGEventTapOptionListenOnly, mask, inputEvent, NULL);
+		if (inputTap == NULL) return;
+		CFRunLoopSourceRef src = CFMachPortCreateRunLoopSource(NULL, inputTap, 0);
+		CFRunLoopAddSource(CFRunLoopGetMain(), src, kCFRunLoopCommonModes);
+		CFRelease(src);
+	}
+	if (inputTap == NULL) return;
+	dispatch_async(dispatch_get_main_queue(), ^{
+		inputWanted = on;
+		CGEventTapEnable(inputTap, on);
+	});
+}
+
+void tsTakeInput(TSInput *in) {
+	in->keys = atomic_exchange(&inputKeys, 0);
+	in->left = atomic_exchange(&inputLeft, 0);
+	in->right = atomic_exchange(&inputRight, 0);
+	in->middle = atomic_exchange(&inputMiddle, 0);
+	in->other = atomic_exchange(&inputOther, 0);
+	in->move = atomic_exchange(&inputMove, 0);
+	in->scroll = atomic_exchange(&inputScroll, 0);
+	for (int i = 0; i < 128; i++) in->keyCounts[i] = atomic_exchange(&inputKeyCounts[i], 0);
 }
 
 // ---- idle, lock screen, sound ---------------------------------------------

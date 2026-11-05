@@ -18,6 +18,12 @@ typedef struct {
 	double x, y, w, h; // its frame in global screen points; w == 0: unknown
 } TSFront;
 
+// Keyboard and mouse use, with the presses per Mac key code.
+typedef struct {
+	int64_t keys, left, right, middle, other, move, scroll;
+	int32_t keyCounts[128];
+} TSInput;
+
 // Tracking (sys_darwin.m).
 bool tsFront(TSFront *f);
 void tsFreeFront(TSFront *f);
@@ -28,6 +34,8 @@ void *tsAppIconPNG(const char *path, int size, int *len);
 double tsIdleSeconds(void);
 bool tsScreenLocked(void);
 bool tsSoundPlaying(void);
+void tsCaptureInput(bool on);
+void tsTakeInput(TSInput *in);
 bool tsAccessibilityTrusted(bool prompt);
 bool tsScreenCaptureAllowed(void);
 void tsRequestScreenCapture(void);

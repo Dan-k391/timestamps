@@ -1,11 +1,12 @@
 // Day view: timeline lanes, live updates, tagging and summaries.
 import { h, clear, icon, button, appIcon, kindIcon, siteHost, wheelScrollsX, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, durLong, clock, fmtDateLong, today, addDays, hex, hashColor, mutedColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser, baseDomain } from '../fmt.js';
+import { dur, durLong, clock, mouseDistance, compact, fmtDateLong, today, addDays, hex, hashColor, mutedColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser, baseDomain } from '../fmt.js';
 import * as api from '../api.js';
 import { Timeline } from '../timeline.js';
 import { ActivityList } from '../activitylist.js';
-import { Board } from '../grid.js';
+import { Board, layoutButtons } from '../grid.js';
+import { columns } from '../charts.js';
 import { state, loadTags } from '../state.js';
 import { debounce } from '../ui.js';
 import { openTagDialog } from '../tagdialog.js';
@@ -51,28 +52,15 @@ export function mount(el, params) {
   el.className = 'view day-view';
 
   let data = null, lanes = [], liveNow = 0, sel = null, summaryTab = 'apps', docTab = 'sites';
+  let liveInput = null; // today's keyboard and mouse totals, as they come in
+  const clicks = (n) => n.left + n.right + n.middle + n.other;
   const expanded = new Set();
 
   // ---- header ----
   const dateBtn = h('button', { class: 'btn date-btn', type: 'button', title: t('Pick a date') }, icon('day', 16), h('span', null, fmtDateLong(date)));
   dateBtn.onclick = async () => { const d = await pickDate(dateBtn, date); if (d) go('day/' + d); };
   const kpis = h('div', { class: 'kpis' });
-  const resetBtn = button('', { icon: 'layers', variant: 'ghost', title: t('Reset layout'), onClick: () => board.reset() });
-  const pinBtn = button('', { icon: 'pin', variant: 'ghost', onClick: () => setPinned(!(state.settings && state.settings.dayGridPinned)) });
-  // A pinned layout can't be dragged, resized or reset.
-  const showPinned = (on) => {
-    pinBtn.classList.toggle('on', on);
-    pinBtn.title = on ? t('Unpin layout') : t('Pin layout');
-    resetBtn.disabled = on;
-  };
-  const setPinned = (on) => {
-    if (!state.settings) return;
-    state.settings.dayGridPinned = on;
-    board.setLocked(on);
-    showPinned(on);
-    api.post('settings', state.settings).catch((err) => toast(err.message, { type: 'error' }));
-  };
-  showPinned(!!(state.settings && state.settings.dayGridPinned));
+  const { pinBtn, resetBtn } = layoutButtons(() => board, 'dayGridPinned');
   const header = h('header', { class: 'toolbar' },
     h('div', { class: 'date-nav' },
       button('', { icon: 'left', title: t('Previous day') + ' (F7)', onClick: () => go('day/' + addDays(date, -1)) }),
@@ -100,6 +88,7 @@ export function mount(el, params) {
   const docsCard = h('section', { class: 'card list-card' });
   const tagsCard = h('section', { class: 'card list-card' });
   const shotsCard = h('section', { class: 'card shots-card' });
+  const inputCard = h('section', { class: 'card' });
   const listHost = h('div', { class: 'blk-fill' });
   const boardEl = h('div');
   el.append(header, boardEl);
@@ -118,8 +107,10 @@ export function mount(el, params) {
     { id: 'apps', el: appsCard, row: 2, w: 6, h: 10 },
     { id: 'tags', el: tagsCard, row: 2, w: 6, h: 10 },
     { id: 'shots', el: shotsCard, row: 3, w: 12, h: 5, minH: 4 },
+    { id: 'input', el: inputCard, row: 4, w: 12, h: 6, minH: 5 },
   ], (state.settings && state.settings.dayGrid) || [], saveLayout);
   board.setHidden('shots', true);
+  board.setHidden('input', true);
   board.setLocked(state.settings && state.settings.dayGridPinned);
 
   const tl = new Timeline(tlHost, {
@@ -316,6 +307,7 @@ export function mount(el, params) {
     renderKpis();
     renderSummaries();
     renderShots();
+    renderInput();
     renderBanner();
   }
 
@@ -341,6 +333,14 @@ export function mount(el, params) {
       chip('k-away', t('Away'), dur(tot.away)),
       tot.first ? chip('k-span', t('Span'), `${clock(tot.first)} – ${tot.last >= data.to ? '24:00' : clock(tot.last)}`, t('First and last activity')) : null,
       chip('k-tag', t('Tagged'), dur(tot.tagged)));
+    const n = (isToday() && liveInput) || data.input;
+    if (n.keys || clicks(n) || n.move || n.scroll) {
+      kpis.append(
+        chip('k-input', t('Keys'), n.keys.toLocaleString()),
+        chip('k-input', t('Clicks'), clicks(n).toLocaleString(), t('Left {0} · Right {1} · Middle {2} · Other {3}', n.left, n.right, n.middle, n.other)),
+        chip('k-input', t('Mouse'), mouseDistance(n.move)),
+        chip('k-input', t('Scroll'), Math.round(n.scroll / 120).toLocaleString()));
+    }
   }
 
   function renderBanner() {
@@ -474,6 +474,9 @@ export function mount(el, params) {
     for (const [card, top] of keep) { const l = card.querySelector('.list'); if (l) l.scrollTop = top; }
   }
 
+  // An app's keys and clicks: counted per day, so left out for a selection.
+  const appInputParts = (n) => [h('span', null, icon('keyboard', 13), compact(n.keys)), h('span', null, icon('pointer', 13), compact(clicks(n)))];
+
   function renderSummaryCards() {
     const c = collect();
     // Applications
@@ -483,13 +486,16 @@ export function mount(el, params) {
     const list = h('div', { class: 'list' });
     if (!c.apps.length) list.append(empty('app', t('No application activity'), sel ? t('Nothing was tracked in the selected range.') : null));
     const max = c.apps.length ? c.apps[0].secs : 1;
+    const showInput = !sel && Object.keys(data.inputApps).length > 0; // a day without counts keeps its %
     list.append(...listRows(c.apps.map((a) => {
       const key = 'app:' + a.app.id;
       const open = expanded.has(key);
       const row = h('div', { class: 'row' + (open ? ' open' : ''), ...hoverHighlight((sg) => sg.kind === 'app' ? sg.app.id === a.app.id : sg.kind === 'doc' && sg.appId ? sg.appId === a.app.id : null) },
         h('button', { class: 'row-main', type: 'button', onClick: () => { open ? expanded.delete(key) : expanded.add(key); renderSummaries(); } },
-          appIcon(a.app, 18), h('span', { class: 'row-name' }, a.app.name), bar(a.secs, max, hex(a.app.color)),
-          h('span', { class: 'row-pct' }, pct(a.secs, appTotal)), h('span', { class: 'row-dur' }, dur(a.secs))));
+          appIcon(a.app, 18), h('span', { class: 'row-name' }, a.app.name),
+          showInput ? h('span', { class: 'row-input', 'data-app': a.app.id }, data.inputApps[a.app.id] ? appInputParts(data.inputApps[a.app.id]) : null) : null,
+          bar(a.secs, max, hex(a.app.color)),
+          showInput ? null : h('span', { class: 'row-pct' }, pct(a.secs, appTotal)), h('span', { class: 'row-dur' }, dur(a.secs))));
       if (open) {
         const titles = [...a.titles.entries()].sort((x, y) => y[1] - x[1]);
         row.append(h('div', { class: 'sub-list' }, titles.slice(0, 60).map(([title, secs]) => h('div', { class: 'sub-row', title, ...hoverHighlight((sg) => sg.kind === 'app' ? sg.app.id === a.app.id && sg.title === title : null) },
@@ -555,6 +561,25 @@ export function mount(el, params) {
         h('div', { class: 'row-main' }, h('span', { class: 'dot', style: { background: color } }), h('span', { class: 'row-name' }, tags), bar(secs, tmax, color), h('span', { class: 'row-pct' }, pct(secs, tagTotal)), h('span', { class: 'row-dur' }, dur(secs)))));
     }
     tagsCard.append(tlst);
+  }
+
+  function renderInput() {
+    const hours = data.inputHours;
+    const any = hours.some((n) => n.keys || clicks(n));
+    board.setHidden('input', !any);
+    if (!any) return;
+    clear(inputCard);
+    const color = { keys: cssVar('--accent'), clicks: cssVar('--active') };
+    inputCard.append(h('div', { class: 'card-head' }, icon('keyboard', 16), h('h3', null, t('Keyboard and mouse')), h('div', { class: 'spacer' }),
+      h('span', { class: 'legend' }, h('span', { class: 'dot', style: { background: color.keys } }), t('Keys'), h('span', { class: 'dot', style: { background: color.clicks } }), t('Clicks'))),
+    columns({
+      labels: hours.map((_, i) => clock(data.from + i * 3600)),
+      series: [
+        { name: t('Keys'), color: color.keys, values: hours.map((n) => n.keys) },
+        { name: t('Clicks'), color: color.clicks, values: hours.map(clicks) },
+      ],
+      fmt: (v) => Math.round(v).toLocaleString(), unit: 10, height: 170,
+    }));
   }
 
   function renderShots() {
@@ -709,6 +734,18 @@ export function mount(el, params) {
   return {
     refresh(ev) {
       if (!ev || ev.type === 'settings') { load(); return; }
+      if (ev.type === 'input') {
+        liveInput = ev.input;
+        if (data && isToday()) {
+          renderKpis();
+          if (ev.app) {
+            data.inputApps[ev.app] = ev.appInput;
+            const el = appsCard.querySelector(`.row-input[data-app="${ev.app}"]`);
+            if (el) el.replaceChildren(...appInputParts(ev.appInput));
+          }
+        }
+        return;
+      }
       if (['seg', 'tags', 'shot', 'state', 'away', 'timers', 'icons'].includes(ev.type) && (isToday() || ev.type === 'tags' || ev.type === 'icons')) {
         clearTimeout(reloadTimer);
         reloadTimer = setTimeout(() => load(), ev.type === 'seg' ? 1200 : ev.type === 'icons' ? 1500 : 150);

@@ -103,6 +103,28 @@ func IdleSeconds() float64 { return float64(C.tsIdleSeconds()) }
 // ScreenLocked reports a locked screen or a switched-away user session.
 func ScreenLocked() bool { return bool(C.tsScreenLocked()) }
 
+// Input holds keyboard and mouse totals.
+type Input struct {
+	Keys, Left, Right, Middle, Other int64
+	Move                             int64 // points
+	Scroll                           int64 // lines scrolled × 120, as a wheel notch on Windows
+}
+
+// CaptureInput starts or stops counting.
+func CaptureInput(on bool) { C.tsCaptureInput(C.bool(on)) }
+
+// TakeInput returns the totals, and the presses per Mac key code, since it
+// last did.
+func TakeInput() (Input, [128]int32) {
+	var c C.TSInput
+	C.tsTakeInput(&c)
+	var keys [128]int32
+	for i, n := range c.keyCounts {
+		keys[i] = int32(n)
+	}
+	return Input{int64(c.keys), int64(c.left), int64(c.right), int64(c.middle), int64(c.other), int64(c.move), int64(c.scroll)}, keys
+}
+
 // SoundPlaying reports whether an app plays through the default output.
 func SoundPlaying() bool { return bool(C.tsSoundPlaying()) }
 

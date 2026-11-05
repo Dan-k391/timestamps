@@ -1,11 +1,14 @@
 // Statistics: totals (against the period before), activity by day, heatmap,
 // focus sessions, weekly rhythm, top applications over time, top lists and
 // drill-down.
-import { h, clear, icon, button, appIcon, kindIcon, empty, dropdown, toast } from '../ui.js';
+import { h, clear, icon, button, appIcon, kindIcon, empty, dropdown, toast, segmented, debounce } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, clock, hex, hashColor, mutedColor, fmtDate, fmtDateLong, fmtRange, pct, weekStart, hourLabel, today, addDays, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
+import { dur, clock, mouseDistance, hex, hashColor, mutedColor, fmtDate, fmtDateLong, fmtRange, pct, weekStart, hourLabel, today, addDays, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
 import * as api from '../api.js';
-import { columns, heatmap } from '../charts.js';
+import { columns, heatmap, donut } from '../charts.js';
+import { keyboardHeat, topKeys } from '../keyboard.js';
+import { Board, layoutButtons } from '../grid.js';
+import { state } from '../state.js';
 import { rangeBar, resolve, shift } from '../range.js';
 import { go } from '../router.js';
 
@@ -15,10 +18,39 @@ export function mount(el, params) {
   el.className = 'view stats-view';
   let st = { p: params.p || 'week', d: params.d || today(), from: params.from, to: params.to };
   let data = null;
+  let seq = 0; // of the last request: a slow older answer must not replace it
+  let liveInput = null; // shows today's keyboard and mouse totals as they come in
   const head = h('header', { class: 'toolbar' });
   const body = h('div', { class: 'stats-body' });
   const drawer = h('aside', { class: 'drawer', hidden: true });
   el.append(head, body, drawer);
+
+  // The blocks in their default rows, as in the day view; keyboard and mouse
+  // come last. Blocks a range has nothing for are hidden.
+  const slots = {};
+  const blocks = [
+    { id: 'overview', row: 0, w: 12, autoHeight: true },
+    { id: 'activity', row: 1, w: 7.5, h: 7 }, { id: 'when', row: 1, w: 4.5, h: 7 },
+    { id: 'focus', row: 2, w: 6, h: 8 }, { id: 'rhythm', row: 2, w: 6, h: 8 },
+    { id: 'trend', row: 3, w: 12, h: 8 },
+    { id: 'apps', row: 4, w: 6, h: 11 }, { id: 'sites', row: 4, w: 6, h: 11 },
+    { id: 'files', row: 5, w: 6, h: 11 }, { id: 'tags', row: 5, w: 6, h: 11 },
+    { id: 'attendance', row: 6, w: 12, h: 9 },
+    { id: 'inputTotals', row: 7, w: 12, autoHeight: true },
+    { id: 'inputChart', row: 8, w: 12, h: 7 },
+    { id: 'keyboard', row: 9, w: 12, h: 8 },
+    { id: 'keyShare', row: 10, w: 4.5, h: 9 }, { id: 'keyCounts', row: 10, w: 7.5, h: 9 },
+    { id: 'inputApps', row: 11, w: 12, h: 9 },
+  ].map((b) => ({ ...b, el: (slots[b.id] = h('div', { class: 'blk-fill' })) }));
+  const saveLayout = debounce((layout) => {
+    if (!state.settings) return;
+    state.settings.statsGrid = layout;
+    api.post('settings', state.settings).catch((err) => toast(err.message, { type: 'error' }));
+  }, 400);
+  const board = new Board(body, blocks, (state.settings && state.settings.statsGrid) || [], saveLayout);
+  const { pinBtn, resetBtn } = layoutButtons(() => board, 'statsGridPinned');
+  board.setLocked(state.settings && state.settings.statsGridPinned);
+  board.show([]); // until the first data: blocks appear in place, not flying in from the corner
 
   function setState(next) {
     st = next;
@@ -31,19 +63,30 @@ export function mount(el, params) {
   async function render() {
     clear(head);
     head.append(rangeBar(st, setState, ['day', 'week', 'month', 'year', 'last30', 'all', 'custom']), h('div', { class: 'spacer' }),
-      button(t('Export'), { icon: 'download', onClick: (e) => exportMenu(e.currentTarget) }));
+      button(t('Export'), { icon: 'download', onClick: (e) => exportMenu(e.currentTarget) }), pinBtn, resetBtn);
     const [from, to] = resolve(st.p, st.d, st.from, st.to);
     const [pfrom, pto] = previous(st, from, to);
+    const my = ++seq;
     body.classList.add('loading');
+    let next;
     try {
-      data = await api.get('stats', pfrom ? { from, to, pfrom, pto } : { from, to });
-    } catch (err) { toast(err.message, { type: 'error' }); return; } finally { body.classList.remove('loading'); }
+      next = await api.get('stats', pfrom ? { from, to, pfrom, pto } : { from, to });
+    } catch (err) { if (my === seq) toast(err.message, { type: 'error' }); return; } finally { if (my === seq) body.classList.remove('loading'); }
+    if (my !== seq) return;
+    data = next;
     draw(from, to, pfrom && fmtRange(pfrom, pto));
   }
 
   function draw(from, to, prevLabel) {
-    clear(body);
+    const cards = build(from, to, prevLabel);
+    for (const [id, slot] of Object.entries(slots)) slot.replaceChildren(...(cards[id] ? [cards[id]] : []));
+    board.show(Object.keys(cards).filter((id) => cards[id]));
+  }
+
+  function build(from, to, prevLabel) {
+    const cards = {};
     const d = data;
+    liveInput = null;
     let days = d.days;
     if (st.p === 'all') {
       const firstIdx = days.findIndex((x) => x.active > 0);
@@ -64,16 +107,16 @@ export function mount(el, params) {
       const c = Math.round(((cur - old) / old) * 100);
       return h('span', { class: 'delta' + (c > 0 ? ' up' : c < 0 ? ' down' : ''), title: prevLabel + ' · ' + dur(old) }, icon(c >= 0 ? 'up' : 'down', 11), Math.abs(c) + '%');
     };
-    body.append(h('div', { class: 'tiles' },
+    cards.overview = h('div', { class: 'tiles' },
       tile(t('Active'), dur(d.active), t('{0} days with activity', activeDays.length), 't-active', delta(d.active, p && p.active)),
       tile(t('Average per day'), dur(d.active / n), t('on active days'), '', delta(d.active / n, p && p.days && p.active / p.days)),
       tile(t('Away'), dur(d.away), null, 't-away'),
       tile(t('Tagged'), dur(d.tagged), d.active ? pct(d.tagged, d.active) + ' ' + t('of active time') : null, 't-tag', delta(d.tagged, p && p.tagged)),
-      tile(t('Average start'), activeDays.length ? fmtSec(avgStart) : '—', activeDays.length ? t('Average end') + ' ' + fmtSec(avgEnd) : null)));
+      tile(t('Average start'), activeDays.length ? fmtSec(avgStart) : '—', activeDays.length ? t('Average end') + ' ' + fmtSec(avgEnd) : null));
 
     if (!d.active && !d.away) {
-      body.append(h('section', { class: 'card' }, empty('stats', t('No data for this period'), t('Pick another range, or import your ManicTime history in Settings → Data.'))));
-      return;
+      cards.activity = h('section', { class: 'card' }, empty('stats', t('No data for this period'), t('Pick another range, or import your ManicTime history in Settings → Data.')));
+      return cards;
     }
 
     // Activity chart: by day, or by week/month for long ranges.
@@ -92,15 +135,109 @@ export function mount(el, params) {
     });
     const dayNames = [];
     for (let i = 0; i < 7; i++) dayNames.push(fmtDate(dateKey(new Date(2024, 0, 1 + i)), { weekday: 'short' }));
-    body.append(h('div', { class: 'grid-2-1' },
-      h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('activity', 16), h('h3', null, t('Activity')), h('div', { class: 'spacer' }),
-        h('span', { class: 'legend' }, h('span', { class: 'dot', style: { background: C.active } }), t('Active'), h('span', { class: 'dot', style: { background: C.away } }), t('Away'))), chart),
-      h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('clock', 16), h('h3', null, t('When you work'))),
-        heatmap(d.heat, { days: dayNames, fmt: (v) => dur(v), weekStart: weekStart(), hourLabel }))));
+    cards.activity = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('activity', 16), h('h3', null, t('Activity')), h('div', { class: 'spacer' }),
+      h('span', { class: 'legend' }, h('span', { class: 'dot', style: { background: C.active } }), t('Active'), h('span', { class: 'dot', style: { background: C.away } }), t('Away'))), chart);
+    cards.when = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('clock', 16), h('h3', null, t('When you work'))),
+      heatmap(d.heat, { days: dayNames, fmt: (v) => dur(v), weekStart: weekStart(), hourLabel }));
 
-    body.append(h('div', { class: 'grid-2' }, focusCard(d), rhythmCard(d, days, dayNames)));
-    const top = topApps(d, buckets);
-    if (top) body.append(top);
+    const inp = d.input;
+    if (inp.keys || inputClicks(inp)) {
+      const Ci = { keys: cssVar('--accent'), clicks: cssVar('--active') };
+      const tKeys = tile(t('Keys'), ''), tClicks = tile(t('Clicks'), '', ' '), tMouse = tile(t('Mouse'), ''), tScroll = tile(t('Scroll'), '');
+      const value = (el, v) => { el.querySelector('.tile-value').textContent = v; };
+      const showInput = (n) => {
+        value(tKeys, n.keys.toLocaleString());
+        value(tClicks, inputClicks(n).toLocaleString());
+        tClicks.querySelector('.tile-sub').textContent = t('Left {0} · Right {1} · Middle {2} · Other {3}', n.left, n.right, n.middle, n.other);
+        value(tMouse, mouseDistance(n.move));
+        value(tScroll, Math.round(n.scroll / 120).toLocaleString());
+      };
+      showInput(inp);
+      const keysHost = h('div'), shareHost = h('div', { class: 'donut-host' }), countsHost = h('div', { class: 'list' });
+      const count = (v) => Math.round(v).toLocaleString();
+      const showKeys = () => {
+        const list = topKeys(d.inputKeys, 15), share = topKeys(d.inputKeys, 8);
+        const color = (k) => hashColor(k.name);
+        const total = list.top.reduce((n, k) => n + k.value, list.rest), max = list.top.length ? list.top[0].value : 1;
+        keysHost.replaceChildren(keyboardHeat(d.inputKeys));
+        shareHost.replaceChildren(donut([...share.top.map((k) => ({ ...k, color: color(k) })), { name: t('Other'), value: share.rest, color: cssVar('--border-2') }], count));
+        countsHost.replaceChildren(...list.top.map((k) => h('div', { class: 'row' }, h('div', { class: 'row-main key-row' },
+          h('span', { class: 'dot', style: { background: color(k) } }), h('span', { class: 'row-name' }, k.name),
+          h('div', { class: 'bar' }, h('div', { class: 'bar-fill', style: { width: Math.max(1.5, (k.value / max) * 100) + '%', background: color(k) } })),
+          h('span', { class: 'row-pct' }, pct(k.value, total)), h('span', { class: 'row-dur' }, count(k.value))))));
+      };
+      showKeys();
+      if (Object.keys(d.inputKeys).length) {
+        cards.keyboard = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('keyboard', 16), h('h3', null, t('Keyboard'))), keysHost);
+        cards.keyShare = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('keyboard', 16), h('h3', null, t('Key share'))), shareHost);
+        cards.keyCounts = h('section', { class: 'card list-card' }, h('div', { class: 'card-head' }, icon('keyboard', 16), h('h3', null, t('Key counts'))), countsHost);
+      }
+      const dayNow = days.find((x) => x.date === today());
+      if (dayNow) {
+        liveInput = (n, keys) => {
+          if (dayNow.date !== today()) { liveInput = null; render(); return; } // the day ended: its totals are stored now
+          showInput(Object.fromEntries(Object.keys(inp).map((k) => [k, inp[k] - dayNow.input[k] + n[k]])));
+          if (keys) {
+            const first = !cards.keyboard;
+            for (const [k, c] of Object.entries(keys)) d.inputKeys[k] = (d.inputKeys[k] || 0) + c;
+            if (first) { liveInput = null; render(); return; } // the keyboard blocks come in with the first key
+            countsHost.classList.add('no-grow'); // bars are replaced on each key: no entrance animation
+            showKeys();
+          }
+        };
+      }
+      cards.inputTotals = h('div', { class: 'tiles' }, tKeys, tClicks, tMouse, tScroll);
+      const metrics = {
+        keys: { name: t('Keys'), color: Ci.keys, fmt: count, of: (b) => b.keys },
+        clicks: { name: t('Clicks'), color: Ci.clicks, fmt: count, of: (b) => b.clicks },
+        move: { name: t('Mouse'), color: Ci.keys, fmt: mouseDistance, of: (b) => b.move },
+        scroll: { name: t('Scroll'), color: Ci.clicks, fmt: count, of: (b) => b.scroll / 120 },
+      };
+      const chartHost = h('div', { class: 'chart-host' });
+      const showChart = (id) => {
+        const m = metrics[id];
+        clear(chartHost);
+        chartHost.append(columns({
+          labels: buckets.map((b) => b.label),
+          series: [{ name: m.name, color: m.color, values: buckets.map(m.of) }],
+          fmt: m.fmt,
+          unit: id === 'move' ? 2000 : 10, // a tenth of a metre, in pixels
+          tipLabel: (i) => buckets[i].tip,
+          onClick: (i) => { if (buckets[i].date) go('day/' + buckets[i].date); },
+          height: 200,
+        }));
+      };
+      showChart('keys');
+      cards.inputChart = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('keyboard', 16), h('h3', null, t('Keyboard and mouse')), h('div', { class: 'spacer' }),
+        segmented(Object.entries(metrics).map(([id, m]) => [id, m.name]), 'keys', showChart)), chartHost);
+      if (d.inputApps.length) {
+        const ico = (a, size) => appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, size);
+        const cols = [[t('Keys'), (a) => a.keys], [t('Clicks'), inputClicks], [t('Mouse'), (a) => a.move], [t('Scroll'), (a) => a.scroll]];
+        const limit = 25;
+        let sortBy = 0, all = false;
+        const host = h('div', { class: 'table-host' });
+        const fill = () => {
+          const rows = d.inputApps.slice().sort((a, b) => cols[sortBy][1](b) - cols[sortBy][1](a));
+          clear(host);
+          host.append(h('div', { class: 'table-wrap' }, h('table', { class: 'table' },
+            h('thead', null, h('tr', null, h('th', null, t('Application')), cols.map(([name], i) => h('th', { class: 'click' + (i === sortBy ? ' on' : ''), onClick: () => { sortBy = i; fill(); } }, name)))),
+            h('tbody', null, (all ? rows : rows.slice(0, limit)).map((a) => h('tr', { class: 'click', onClick: () => detail('app', a.name, { id: a.id }, from, to, ico(a, 22)) },
+              h('td', null, h('span', { class: 'input-app' }, ico(a, 18), a.name)),
+              h('td', null, a.keys.toLocaleString()), h('td', null, inputClicks(a).toLocaleString()),
+              h('td', null, mouseDistance(a.move)), h('td', null, Math.round(a.scroll / 120).toLocaleString())))))));
+          if (!all && rows.length > limit) host.append(h('button', { class: 'more-btn', type: 'button', onClick: () => { all = true; fill(); } }, t('Show all ({0})', rows.length)));
+        };
+        fill();
+        cards.inputApps = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('app', 16), h('h3', null, t('Applications'))), host);
+      }
+    } else if (days.some((x) => x.date === today())) {
+      // Nothing counted yet: the first key or click brings the tiles in.
+      liveInput = (n) => { if (n.keys || inputClicks(n)) { liveInput = null; render(); } };
+    }
+
+    cards.focus = focusCard(d);
+    cards.rhythm = rhythmCard(d, days, dayNames);
+    cards.trend = topApps(d, buckets);
 
     // Top lists.
     const listCard = (title, ic, items, render, kind) => {
@@ -123,15 +260,14 @@ export function mount(el, params) {
         h('div', { class: 'bar' }, h('div', { class: 'bar-fill', style: { width: Math.max(1.5, (secs / max) * 100) + '%', background: color } })),
         h('span', { class: 'row-pct' }, pct(secs, total)), h('span', { class: 'row-dur' }, dur(secs))));
 
-    body.append(h('div', { class: 'grid-2' },
-      listCard(t('Applications'), 'app', d.apps, (a, max, total) => row(appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 18), a.name, null, a.secs, max, total, hex(a.color),
-        () => detail('app', a.name, { id: a.id }, from, to, appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 22)))),
-      listCard(t('Websites'), 'globe', d.sites, (s, max, total) => row(kindIcon(2, s.key, 18), s.key, null, s.secs, max, total, s.color ? hex(s.color) : mutedColor(s.key),
-        () => detail('site', s.key, { key: s.key }, from, to, kindIcon(2, s.key, 22)))),
-      listCard(t('Files'), 'file', d.files, (f, max, total) => row(kindIcon(1, f.key, 18), f.name, dirName(f.key), f.secs, max, total, hashColor(f.name),
-        () => detail('file', f.name, { id: f.id, path: f.key }, from, to, kindIcon(1, f.key, 22)))),
-      listCard(t('Tags'), 'tag', d.tags, (tg, max, total) => row(h('span', { class: 'dot lg', style: { background: hex(tg.color) } }), tg.name, null, tg.secs, max, total, hex(tg.color),
-        () => detail('tag', tg.name, { key: tg.key }, from, to, h('span', { class: 'dot lg', style: { background: hex(tg.color) } }))))));
+    cards.apps = listCard(t('Applications'), 'app', d.apps, (a, max, total) => row(appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 18), a.name, null, a.secs, max, total, hex(a.color),
+        () => detail('app', a.name, { id: a.id }, from, to, appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 22))));
+    cards.sites = listCard(t('Websites'), 'globe', d.sites, (s, max, total) => row(kindIcon(2, s.key, 18), s.key, null, s.secs, max, total, s.color ? hex(s.color) : mutedColor(s.key),
+        () => detail('site', s.key, { key: s.key }, from, to, kindIcon(2, s.key, 22))));
+    cards.files = listCard(t('Files'), 'file', d.files, (f, max, total) => row(kindIcon(1, f.key, 18), f.name, dirName(f.key), f.secs, max, total, hashColor(f.name),
+        () => detail('file', f.name, { id: f.id, path: f.key }, from, to, kindIcon(1, f.key, 22))));
+    cards.tags = listCard(t('Tags'), 'tag', d.tags, (tg, max, total) => row(h('span', { class: 'dot lg', style: { background: hex(tg.color) } }), tg.name, null, tg.secs, max, total, hex(tg.color),
+        () => detail('tag', tg.name, { key: tg.key }, from, to, h('span', { class: 'dot lg', style: { background: hex(tg.color) } }))));
 
     // Attendance.
     const att = h('table', { class: 'table' },
@@ -140,7 +276,8 @@ export function mount(el, params) {
         h('td', null, fmtDate(x.date, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })),
         h('td', null, x.first ? clock(x.first) : '—'), h('td', null, x.last ? fmtSec(x.last - parseKey(x.date).getTime() / 1000) : '—'),
         h('td', null, x.first ? dur(x.last - x.first) : '—'), h('td', null, dur(x.active)), h('td', null, dur(x.away)), h('td', null, dur(x.tagged))))));
-    body.append(h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('day', 16), h('h3', null, t('Attendance'))), h('div', { class: 'table-wrap' }, att)));
+    cards.attendance = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('day', 16), h('h3', null, t('Attendance'))), h('div', { class: 'table-wrap' }, att));
+    return cards;
   }
 
   // Focus: how the active time breaks into sessions, and how often the
@@ -206,7 +343,7 @@ export function mount(el, params) {
 
   function bucketize(days) {
     if (days.length <= 62) {
-      return days.map((x) => ({ label: days.length > 14 ? String(parseKey(x.date).getDate()) : fmtDate(x.date, { weekday: 'short', day: 'numeric' }), tip: fmtDateLong(x.date), date: x.date, dates: [x.date], active: x.active, away: x.away }));
+      return days.map((x) => ({ label: days.length > 14 ? String(parseKey(x.date).getDate()) : fmtDate(x.date, { weekday: 'short', day: 'numeric' }), tip: fmtDateLong(x.date), date: x.date, dates: [x.date], active: x.active, away: x.away, keys: x.input.keys, clicks: inputClicks(x.input), move: x.input.move, scroll: x.input.scroll }));
     }
     const byMonth = days.length > 400;
     const out = [];
@@ -215,16 +352,22 @@ export function mount(el, params) {
       const k = byMonth ? x.date.slice(0, 7) : weekKey(x.date);
       let b = map.get(k);
       if (!b) {
-        b = { label: byMonth ? fmtDate(x.date, { month: 'short', year: '2-digit' }) : fmtDate(x.date, { month: 'short', day: 'numeric' }), tip: byMonth ? fmtDate(x.date, { month: 'long', year: 'numeric' }) : t('Week of {0}', fmtDate(x.date, { month: 'short', day: 'numeric', year: 'numeric' })), dates: [], active: 0, away: 0 };
+        b = { label: byMonth ? fmtDate(x.date, { month: 'short', year: '2-digit' }) : fmtDate(x.date, { month: 'short', day: 'numeric' }), tip: byMonth ? fmtDate(x.date, { month: 'long', year: 'numeric' }) : t('Week of {0}', fmtDate(x.date, { month: 'short', day: 'numeric', year: 'numeric' })), dates: [], active: 0, away: 0, keys: 0, clicks: 0, move: 0, scroll: 0 };
         map.set(k, b);
         out.push(b);
       }
       b.dates.push(x.date);
       b.active += x.active;
       b.away += x.away;
+      b.keys += x.input.keys;
+      b.clicks += inputClicks(x.input);
+      b.move += x.input.move;
+      b.scroll += x.input.scroll;
     }
     return out;
   }
+
+  const inputClicks = (n) => n.left + n.right + n.middle + n.other;
 
   function weekKey(k) {
     const d = parseKey(k);
@@ -278,6 +421,7 @@ export function mount(el, params) {
       [t('Websites')]: table('websites', ['Website', 'Hours', 'Duration'], data.sites.map((a) => [a.key, hrs(a.secs), dur(a.secs, 'clock')])),
       [t('Files')]: table('files', ['File', 'Path', 'Hours', 'Duration'], data.files.map((a) => [a.name, a.key, hrs(a.secs), dur(a.secs, 'clock')])),
       [t('Tags')]: table('tags', ['Tags', 'Hours', 'Duration'], data.tags.map((a) => [a.name, hrs(a.secs), dur(a.secs, 'clock')])),
+      [t('Keyboard and mouse')]: table('input', ['Date', 'Keys', 'Left clicks', 'Right clicks', 'Middle clicks', 'Other clicks', 'Mouse pixels', 'Scroll notches'], data.days.map((x) => [x.date, x.input.keys, x.input.left, x.input.right, x.input.middle, x.input.other, x.input.move, Math.round(x.input.scroll / 120)].map(String))),
       [t('Attendance')]: table('attendance', ['Date', 'Start', 'End', 'Active hours', 'Away hours', 'Tagged hours'], data.days.filter((x) => x.active).map((x) => [x.date, clock(x.first), clock(x.last), hrs(x.active), hrs(x.away), hrs(x.tagged)])),
     };
     const items = [];
@@ -288,7 +432,12 @@ export function mount(el, params) {
   }
 
   render();
-  return { refresh: (ev) => { if (ev && (ev.type === 'tags' || ev.type === 'settings')) render(); } };
+  return {
+    refresh: (ev) => {
+      if (ev && (ev.type === 'tags' || ev.type === 'settings')) render();
+      if (ev && ev.type === 'input' && liveInput) liveInput(ev.input, ev.keys);
+    },
+  };
 }
 
 // A figure: a number with its name under it; with onClick, a button.

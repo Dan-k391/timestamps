@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strconv"
@@ -34,7 +35,7 @@ import (
 )
 
 // Version is the application version shown in the UI.
-const Version = "1.2.0"
+const Version = "1.3.0"
 
 // Ports tried in order; the browser extension probes the same list.
 var Ports = []int{47613, 47614, 47615, 47616}
@@ -328,6 +329,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 			fail(w, err)
 			return
 		}
+		s.T.FlushInput()
 		etag := fmt.Sprintf(`"%s-%d"`, date, s.DB.Version())
 		if r.Header.Get("If-None-Match") == etag {
 			w.WriteHeader(http.StatusNotModified)
@@ -357,6 +359,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 			fail(w, err)
 			return
 		}
+		s.T.FlushInput()
 		st, err := s.DB.Stats(a, b, s.T.Settings().MergeSubdomains)
 		if err != nil {
 			fail(w, err)
@@ -596,7 +599,12 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 			next = s.DB.Settings()
 			s.T.SetSettings(next)
 			s.Host.ApplySettings(cur, next)
-			s.T.Emit("settings")
+			// A moved block is already on screen: a reload would only reset the view.
+			was := cur
+			was.DayGrid, was.DayGridPinned, was.StatsGrid, was.StatsGridPinned = next.DayGrid, next.DayGridPinned, next.StatsGrid, next.StatsGridPinned
+			if !reflect.DeepEqual(was, next) {
+				s.T.Emit("settings")
+			}
 		}
 		writeJSON(w, r, s.T.Settings())
 
@@ -820,7 +828,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 				shots = s.DB.ShotsBetween(a, b)
 			}
 		}
-		if err := s.DB.DeleteRange(a, b, req.Timelines); err != nil {
+		if err := s.T.DeleteRange(a, b, req.Timelines); err != nil {
 			fail(w, err)
 			return
 		}
@@ -1026,6 +1034,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	ch := s.T.Subscribe()
 	defer s.T.Unsubscribe(ch)
+	defer s.T.WatchInput()()
 	hb := time.NewTicker(15 * time.Second)
 	defer hb.Stop()
 	fmt.Fprintf(w, "retry: 2000\n\n")

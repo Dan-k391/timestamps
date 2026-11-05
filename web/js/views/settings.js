@@ -140,6 +140,7 @@ export function mount(el, params) {
         row(t('Only when away for at least'), num('longAwayHours', 1, 12, t('hours')))),
       group(t('Details'),
         row(t('Record window titles'), sw('trackTitles')),
+        row(t('Count keyboard and mouse use'), sw('trackInput')),
         row(t('Record documents and websites'), sw('trackDocuments'), t(byOS('Full file paths come from the open document of the window, the window title and Spotlight.', 'Full file paths come from Office/WPS, Explorer, the program command line and Windows Recent items.'))),
         row(t('Read the browser address bar'), sw('readAddressBar'), t(byOS('Asks Safari, Chrome, Edge, Brave, Arc, Vivaldi and Opera for the current tab; macOS asks you once per browser. Firefox needs the browser extension.', 'Uses Windows UI Automation for Chrome, Edge, Firefox, Brave, Opera, Vivaldi and others. The browser extension is an alternative.'))),
         row(t('Record private / incognito browsing'), sw('trackPrivate'), t('Needs the browser extension to recognise private windows.')),

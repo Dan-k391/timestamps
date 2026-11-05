@@ -37,8 +37,14 @@ type Away struct {
 
 // Event notifies listeners about tracker changes.
 type Event struct {
-	Type string `json:"type"` // seg | away | shot | state
-	At   int64  `json:"at"`
+	Type  string       `json:"type"` // seg | away | shot | state | input
+	At    int64        `json:"at"`
+	Input *store.Input `json:"input,omitempty"` // input: today's totals
+	// input: the app in use and its total today.
+	App      int64        `json:"app,omitempty"`
+	AppInput *store.Input `json:"appInput,omitempty"`
+	// input: the presses per key since the last event.
+	Keys map[uint16]int64 `json:"keys,omitempty"`
 }
 
 type proc struct {
@@ -61,29 +67,40 @@ type Tracker struct {
 
 	lastSound atomic.Int64
 
-	mu         sync.Mutex
-	usage      seg
-	usageState int // -1 none
-	app        seg
-	appKey     string
-	appTitle   string
-	appRef     int64
-	appName    string
-	doc        seg
-	docKey     string
-	docName    string
-	docKind    int
-	lastTick   time.Time
-	lastFlush  time.Time
-	pausedTill time.Time
-	paused     bool
-	offAt      time.Time // MarkOff was asked for then (zero: not marked)
-	offBack    time.Time // input came after MarkOff, first seen then (see markedOff)
-	state      string
-	idle       int64
-	aways      []Away
-	procs      map[uint32]proc
-	iconFixed  map[int64]bool
+	mu             sync.Mutex
+	usage          seg
+	usageState     int // -1 none
+	app            seg
+	appKey         string
+	appTitle       string
+	appRef         int64
+	appName        string
+	doc            seg
+	docKey         string
+	docName        string
+	docKind        int
+	lastTick       time.Time
+	lastFlush      time.Time
+	pausedTill     time.Time
+	paused         bool
+	offAt          time.Time   // MarkOff was asked for then (zero: not marked)
+	offBack        time.Time   // input came after MarkOff, first seen then (see markedOff)
+	inputOn        bool        // counting keyboard and mouse use
+	input          store.Input // not saved yet, for inputSlot
+	inputApps      map[int64]store.Input
+	inputKeys      map[uint16]int64
+	inputSlot      int64 // the store.InputSlot input is counted for
+	inputDay       int64 // and the day
+	inputToday     store.Input
+	inputTodayApps map[int64]store.Input
+	inputNew       bool             // inputToday changed
+	inputShow      map[uint16]int64 // key presses for the next input event
+	appPrivate     bool             // the app in use is left out of the counts per key
+	state          string
+	idle           int64
+	aways          []Away
+	procs          map[uint32]proc
+	iconFixed      map[int64]bool
 
 	lastDocHwnd  uintptr
 	lastDocTitle string
@@ -132,8 +149,9 @@ func (t *Tracker) Unsubscribe(ch chan Event) {
 	t.subMu.Unlock()
 }
 
-func (t *Tracker) emit(typ string) {
-	ev := Event{Type: typ, At: time.Now().Unix()}
+func (t *Tracker) emit(typ string) { t.send(Event{Type: typ, At: time.Now().Unix()}) }
+
+func (t *Tracker) send(ev Event) {
 	t.subMu.Lock()
 	for ch := range t.subs {
 		select {
@@ -300,10 +318,72 @@ func (t *Tracker) tick(now time.Time) {
 	st := t.settings.Load()
 	t.mu.Lock()
 	changed := t.step(now, st)
+	ev := t.inputEvent()
 	t.mu.Unlock()
 	if changed != "" {
 		t.emit(changed)
 	}
+	if ev != nil {
+		t.send(*ev)
+	}
+}
+
+// inputEvent returns the event for input counted since the last one, if any.
+func (t *Tracker) inputEvent() *Event {
+	if !t.inputNew {
+		return nil
+	}
+	t.inputNew = false
+	in := t.inputToday
+	ev := &Event{Type: "input", At: time.Now().Unix(), Input: &in, Keys: t.inputShow}
+	t.inputShow = nil
+	if a, ok := t.inputTodayApps[t.appRef]; ok {
+		ev.App, ev.AppInput = t.appRef, &a
+	}
+	return ev
+}
+
+// WatchInput shows input as it comes in, not at the next tick, until the
+// function it returns is called: for pages open on the numbers.
+func (t *Tracker) WatchInput() (stop func()) {
+	done := make(chan struct{})
+	go func() {
+		tk := time.NewTicker(100 * time.Millisecond)
+		defer tk.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.stop:
+				return
+			case <-tk.C:
+				t.pollInput()
+			}
+		}
+	}()
+	return func() { close(done) }
+}
+
+func (t *Tracker) pollInput() {
+	in, keys := takeInput()
+	t.mu.Lock()
+	var ev *Event
+	if t.state == "active" || t.state == "away" { // else left out, as in step
+		t.countInput(time.Now().Unix(), in, keys)
+		ev = t.inputEvent()
+	}
+	t.mu.Unlock()
+	if ev != nil {
+		t.send(*ev)
+	}
+}
+
+// FlushInput saves what is counted so far, for a page about to read it.
+func (t *Tracker) FlushInput() {
+	t.pollInput()
+	t.mu.Lock()
+	t.saveInput()
+	t.mu.Unlock()
 }
 
 // step runs one sample; it returns the event type to emit, if any.
@@ -314,6 +394,12 @@ func (t *Tracker) step(now time.Time, st *store.Settings) string {
 		t.closeAll(t.lastTick.Unix())
 	}
 	t.lastTick = now
+
+	if st.TrackInput != t.inputOn {
+		t.inputOn = st.TrackInput
+		captureInput(t.inputOn)
+	}
+	in, keys := takeInput() // left out below while paused or marked off
 
 	if t.paused && !t.pausedTill.IsZero() && now.After(t.pausedTill) {
 		t.paused = false
@@ -342,6 +428,7 @@ func (t *Tracker) step(now time.Time, st *store.Settings) string {
 		}
 		return ""
 	}
+	t.countInput(nowS, in, keys)
 
 	lastInput := t.presence(now, idle, st)
 	t.idle = int64(now.Sub(lastInput) / time.Second)
@@ -458,6 +545,7 @@ func (t *Tracker) step(now time.Time, st *store.Settings) string {
 		} else {
 			t.app.e = nowS
 		}
+		t.appPrivate = excl == "all"
 
 		if st.TrackDocuments && excl != "all" && excl != "titles" {
 			browser := browserExes[p.exe]
@@ -562,7 +650,77 @@ func (t *Tracker) closeDoc(nowS int64) {
 	t.doc, t.docKey, t.docName, t.docKind = seg{}, "", "", 0
 }
 
+// DeleteRange deletes data, with what is counted in memory: unsaved input goes
+// to the database first for the range to cover it, and today's total is read
+// again.
+func (t *Tracker) DeleteRange(a, b int64, timelines []string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.saveInput()
+	err := t.db.DeleteRange(a, b, timelines)
+	in, apps := t.db.InputOn(t.inputDay)
+	t.inputTodayApps = apps
+	if in != t.inputToday {
+		t.inputToday, t.inputNew = in, true
+	}
+	return err
+}
+
+func addInput(m *map[int64]store.Input, id int64, in store.Input) {
+	if *m == nil {
+		*m = map[int64]store.Input{}
+	}
+	a := (*m)[id]
+	a.Add(in)
+	(*m)[id] = a
+}
+
+// countInput adds input to the totals, to the app in use, and to the keys
+// unless that app is private.
+// shortcut: the app is the one of the last tick, so up to a second around a switch to or from a private app can land on the wrong side; to be exact, read the foreground window here.
+func (t *Tracker) countInput(nowS int64, in store.Input, keys map[uint16]int64) {
+	if slot := nowS - nowS%store.InputSlot; slot != t.inputSlot {
+		t.saveInput()
+		t.inputSlot = slot
+		if day := store.DayStart(nowS); day != t.inputDay {
+			t.inputDay = day
+			t.inputToday, t.inputTodayApps = t.db.InputOn(day)
+		}
+	}
+	if in == (store.Input{}) {
+		return
+	}
+	t.input.Add(in)
+	t.inputToday.Add(in)
+	t.inputNew = true
+	if t.appRef != 0 {
+		addInput(&t.inputApps, t.appRef, in)
+		addInput(&t.inputTodayApps, t.appRef, in)
+	}
+	if t.appPrivate {
+		return
+	}
+	for k, n := range keys {
+		if t.inputKeys == nil {
+			t.inputKeys = map[uint16]int64{}
+		}
+		if t.inputShow == nil {
+			t.inputShow = map[uint16]int64{}
+		}
+		t.inputKeys[k] += n
+		t.inputShow[k] += n
+	}
+}
+
+func (t *Tracker) saveInput() {
+	if t.input != (store.Input{}) {
+		t.db.SaveInput(t.inputSlot, t.inputDay, t.input, t.inputApps, t.inputKeys)
+		t.input, t.inputApps, t.inputKeys = store.Input{}, nil, nil
+	}
+}
+
 func (t *Tracker) closeAll(at int64) {
+	t.saveInput()
 	t.closeApp(at)
 	t.closeDoc(at)
 	if t.usage.id != 0 {
@@ -575,6 +733,7 @@ func (t *Tracker) closeAll(at int64) {
 
 func (t *Tracker) flush(nowS int64) {
 	t.lastFlush = time.Unix(nowS, 0)
+	t.saveInput()
 	if t.usage.id != 0 {
 		t.db.Extend(store.TUsage, t.usage.id, t.usage.s, nowS)
 	}

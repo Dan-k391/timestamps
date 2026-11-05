@@ -1,8 +1,8 @@
 // Day view layout: blocks sit in full-width rows. A row holds one to three
 // blocks whose widths (in 12 columns, fractional) always add up to the full
 // width, and the blocks of a row share its height. Each block has a minimum
-// width and height. A row with a fit-to-content block takes that block's
-// height.
+// width and height. A row of only fit-to-content blocks takes the height of
+// the tallest; beside other blocks they leave the row its own height.
 //
 // A block is picked up by pressing on any empty part of it. While it is
 // dragged the layout stays still and a marker shows where it will go.
@@ -15,8 +15,10 @@
 // between two blocks of a row moves both, the bottom border sets the row's
 // height; both follow the pointer, catching at thirds and halves of the row.
 // A locked (pinned) board can't be dragged or resized.
-import { h } from './ui.js';
+import { h, button, toast } from './ui.js';
 import { t } from './i18n.js';
+import * as api from './api.js';
+import { state } from './state.js';
 
 export const COLS = 12;
 const ROW = 30; // px per height unit
@@ -87,6 +89,30 @@ export function normalize(rows, minW) {
     }
   }
   return out;
+}
+
+/** The pin and reset buttons of a board; key is the setting keeping the pin.
+ *  A pinned layout can't be dragged, resized or reset. */
+export function layoutButtons(board, key) {
+  const resetBtn = button('', { icon: 'layers', variant: 'ghost', title: t('Reset layout'), onClick: () => board().reset() });
+  const show = (on) => {
+    pinBtn.classList.toggle('on', on);
+    pinBtn.title = on ? t('Unpin layout') : t('Pin layout');
+    resetBtn.disabled = on;
+  };
+  const pinBtn = button('', {
+    icon: 'pin', variant: 'ghost',
+    onClick: () => {
+      if (!state.settings) return;
+      const on = !state.settings[key];
+      state.settings[key] = on;
+      board().setLocked(on);
+      show(on);
+      api.post('settings', state.settings).catch((err) => toast(err.message, { type: 'error' }));
+    },
+  });
+  show(!!(state.settings && state.settings[key]));
+  return { pinBtn, resetBtn };
 }
 
 export class Board {
@@ -163,7 +189,7 @@ export class Board {
     return this.tidy(rows);
   }
 
-  isAuto(row) { return row.items.some((i) => this.blocks.get(i.id).autoHeight); }
+  isAuto(row) { return row.items.every((i) => this.blocks.get(i.id).autoHeight); }
 
   /** The smallest height every block of a row allows. */
   minH(row) { return Math.max(...row.items.map((i) => this.blocks.get(i.id).minH || MIN_H)); }
@@ -181,14 +207,23 @@ export class Board {
     return this.tidy(rows.map((r) => ({ h: r.h, items: r.items.filter((i) => !this.hidden.has(i.id)) })));
   }
 
-  /** Puts hidden blocks back (each in a row of its own where it was). */
+  /** Puts hidden blocks back: into their row if it has room, keeping their
+   *  width; rows of hidden blocks whole, as far from the bottom as they were. */
   withHidden(rows) {
     const out = copy(rows);
-    this.rows.forEach((r, i) => {
-      for (const it of r.items) {
-        if (this.hidden.has(it.id)) out.splice(Math.min(i, out.length), 0, { h: r.h, items: [{ id: it.id, w: COLS }] });
-      }
-    });
+    let at = out.length;
+    for (const r of [...this.rows].reverse()) {
+      const gone = r.items.filter((i) => this.hidden.has(i.id));
+      const kept = r.items.find((i) => !this.hidden.has(i.id));
+      if (kept) at = Math.max(0, at - 1);
+      if (!gone.length) continue;
+      const home = kept && out.find((x) => x.items.some((i) => i.id === kept.id));
+      if (home && home.items.length + gone.length <= 3) {
+        const room = COLS - gone.reduce((n, i) => n + i.w, 0);
+        for (const i of home.items) i.w *= room / COLS;
+        r.items.forEach((it, k) => { if (this.hidden.has(it.id)) home.items.splice(Math.min(k, home.items.length), 0, { ...it }); });
+      } else out.splice(at, 0, { h: r.h, items: gone.map((i) => ({ ...i })) });
+    }
     return this.tidy(out);
   }
 
@@ -219,6 +254,16 @@ export class Board {
     this.render();
   }
 
+  /** Shows these blocks and hides the rest, in one step and without moving
+   *  them there: they would fly in from the corner. */
+  show(ids) {
+    this.hidden = new Set([...this.blocks.keys()].filter((id) => !ids.includes(id)));
+    this.host.classList.remove('ready');
+    this.render();
+    void this.host.offsetHeight; // applied now: a hidden window draws nothing until later
+    setTimeout(() => this.host.classList.add('ready'), 60);
+  }
+
   get colW() { return (this.host.clientWidth - GAP * (COLS - 1)) / COLS; }
 
   /** Pixel boxes of every block and row. */
@@ -227,8 +272,8 @@ export class Board {
     const g = { rows: [], rects: new Map(), height: 0 };
     let top = 0;
     for (const r of rows) {
-      const auto = r.items.find((i) => this.blocks.get(i.id).autoHeight);
-      const hh = auto ? this.blocks.get(auto.id).el.offsetHeight || unitPx(10) : unitPx(r.h);
+      const tall = r.items.map((i) => this.blocks.get(i.id)).filter((b) => b.autoHeight).map((b) => b.el.offsetHeight);
+      const hh = Math.max(r.h ? unitPx(r.h) : 0, ...tall) || unitPx(10);
       let x = 0;
       const items = r.items.map((it) => {
         const rect = { id: it.id, left: x * (cw + GAP), top, width: it.w * cw + (it.w - 1) * GAP, height: hh };
@@ -277,7 +322,7 @@ export class Board {
     rows.forEach((r, ri) => r.items.forEach((it, i) => {
       const edges = this.edges.get(it.id);
       edges.e.hidden = this.locked || !!this.dragId || !this.canMove(r, i);
-      edges.s.hidden = this.locked || !!this.dragId || this.isAuto(r);
+      edges.s.hidden = this.locked || !!this.dragId || !!this.blocks.get(it.id).autoHeight;
       if (it.id === this.dragId) return;
       const el = this.items.get(it.id);
       const p = g.rects.get(it.id);

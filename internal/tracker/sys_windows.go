@@ -11,6 +11,7 @@ import (
 
 	ole "github.com/go-ole/go-ole"
 
+	"timestamps/internal/store"
 	"timestamps/internal/win"
 )
 
@@ -23,6 +24,12 @@ func screenLocked() bool                { return win.IsLocked() }
 func foregroundWindow() uintptr         { return win.ForegroundWindow() }
 func windowVisible(hwnd uintptr) bool   { return win.IsVisible(hwnd) }
 func windowTitle(hwnd uintptr) string   { return win.WindowText(hwnd) }
+func captureInput(on bool)              { win.CaptureInput(on) }
+
+func takeInput() (store.Input, map[uint16]int64) {
+	in, keys := win.TakeInput()
+	return store.Input(in), keys
+}
 
 func (t *Tracker) audioLoop() {
 	runtime.LockOSThread()

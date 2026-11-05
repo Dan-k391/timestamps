@@ -32,6 +32,15 @@ export function durLong(secs) {
 
 export function hoursDecimal(secs) { return (secs / 3600).toFixed(2); }
 
+/** A count in a few characters: 1.2k. */
+export const compact = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
+
+/** Mouse travel from cursor pixels: on the desk, about 0.05 mm a pixel. */
+export function mouseDistance(px) {
+  const m = px * 0.00005;
+  return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : m.toFixed(m < 10 ? 1 : 0) + ' m';
+}
+
 const pad = (n) => String(n).padStart(2, '0');
 
 export function clock(ts, seconds = false) {

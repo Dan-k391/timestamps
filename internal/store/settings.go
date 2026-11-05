@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"runtime"
 	"sync"
 )
 
@@ -18,6 +19,7 @@ type Settings struct {
 	TrackTitles        bool        `json:"trackTitles"`
 	TrackDocuments     bool        `json:"trackDocuments"`
 	TrackPrivate       bool        `json:"trackPrivate"`
+	TrackInput         bool        `json:"trackInput"` // count keyboard and mouse use
 	ReadAddressBar     bool        `json:"readAddressBar"`
 	AwayPrompt         bool        `json:"awayPrompt"`
 	AwayPromptMinutes  int         `json:"awayPromptMinutes"`
@@ -58,6 +60,8 @@ type Settings struct {
 
 	DayGrid         []GridItem `json:"dayGrid"`       // position and size of the day view blocks
 	DayGridPinned   bool       `json:"dayGridPinned"` // the day view layout can't be moved or resized
+	StatsGrid       []GridItem `json:"statsGrid"`     // the same for the statistics
+	StatsGridPinned bool       `json:"statsGridPinned"`
 	MergeSubdomains bool       `json:"mergeSubdomains"`
 	SiteIcons       bool       `json:"siteIcons"`   // download icons the browsers don't have from the sites
 	UpdateCheck     bool       `json:"updateCheck"` // look for new releases now and then
@@ -79,6 +83,7 @@ type GridItem struct {
 func DefaultSettings() Settings {
 	return Settings{
 		AwayMinutes: 10, TreatSoundAsActive: true, TrackTitles: true, TrackDocuments: true, TrackPrivate: true,
+		TrackInput:     runtime.GOOS == "windows", // macOS asks for a permission: only when switched on
 		ReadAddressBar: true, AwayPrompt: true, AwayPromptMinutes: 10, LongAwayHours: 6, Exclusions: []Exclusion{},
 		ScheduleDays: [7]bool{true, true, true, true, true, false, false}, ScheduleStart: "08:00", ScheduleEnd: "18:00",
 		ShotsOn: true, ShotsInterval: 5, ShotsMaxWidth: 1280, ShotsQuality: 60, ShotsKeepDays: 30, ShotsSkipSame: true,
