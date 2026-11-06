@@ -1,7 +1,7 @@
 // Small DOM toolkit: element builder, icons, dialogs, menus, tooltips and
 // form controls shared by all views.
 import { t } from './i18n.js';
-import { hex, hashColor, dateKey, parseKey, weekStart } from './fmt.js';
+import { hex, hashColor, dateKey, parseKey, weekStart, compact } from './fmt.js';
 import { iconURL, siteIconURL } from './api.js';
 
 // Native append() turns null/false into text; skip them like h() does so
@@ -493,3 +493,6 @@ export function debounce(fn, ms) {
   let tm;
   return (...a) => { clearTimeout(tm); tm = setTimeout(() => fn(...a), ms); };
 }
+
+/** An app's keys and clicks, for a list row's .row-input. */
+export const appInputParts = (n) => [h('span', null, icon('keyboard', 13), compact(n.keys)), h('span', null, icon('pointer', 13), compact(n.left + n.right + n.middle + n.other))];

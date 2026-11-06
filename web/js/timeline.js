@@ -779,9 +779,10 @@ export class Timeline {
     ctx.fillStyle = C.text3;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
+    const every = ctx.measureText(clock(this.from + 12 * 3600)).width + 2 > pw / 8 ? 6 : 3; // 12:00 PM is wide
     for (let hr = 0; hr <= 24; hr++) {
       const x = Math.round(this.mx(this.from + hr * 3600)) + 0.5;
-      if (hr % 3 === 0 && hr > 0 && hr < 24) ctx.fillText(String(hr).padStart(2, '0') + ':00', x, ty + th + 9);
+      if (hr % every === 0 && hr > 0 && hr < 24) ctx.fillText(clock(this.from + hr * 3600), x, ty + th + 9);
     }
     ctx.fillStyle = 'rgba(0,0,0,0)';
     // Viewport window with grips.

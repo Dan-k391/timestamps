@@ -1,9 +1,9 @@
 // Statistics: totals (against the period before), activity by day, heatmap,
 // focus sessions, weekly rhythm, top applications over time, top lists and
 // drill-down.
-import { h, clear, icon, button, appIcon, kindIcon, empty, dropdown, toast, segmented, debounce } from '../ui.js';
+import { h, clear, icon, button, appIcon, appInputParts, kindIcon, empty, dropdown, toast, segmented, debounce } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, clock, mouseDistance, keyTime, zoned, hex, hashColor, mutedColor, fmtDate, fmtDateLong, fmtRange, pct, weekStart, hourLabel, today, addDays, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
+import { dur, clock, mouseDistance, keyTime, utcOffset, zoned, hex, hashColor, mutedColor, fmtDate, fmtDateLong, fmtRange, pct, weekStart, hourLabel, today, addDays, shortURL, dirName, daysBetween, parseKey, dateKey } from '../fmt.js';
 import * as api from '../api.js';
 import { columns, heatmap, donut } from '../charts.js';
 import { keyboardHeat, topKeys } from '../keyboard.js';
@@ -95,9 +95,8 @@ export function mount(el, params) {
     days = days.filter((x) => x.date <= today());
     const activeDays = days.filter((x) => x.active > 0);
     const n = activeDays.length || 1;
-    const dayStart = keyTime;
-    const avgStart = activeDays.length ? activeDays.reduce((s, x) => s + (x.first - dayStart(x.date)), 0) / activeDays.length : 0;
-    const avgEnd = activeDays.length ? activeDays.reduce((s, x) => s + (x.last - dayStart(x.date)), 0) / activeDays.length : 0;
+    const avgStart = activeDays.length ? activeDays.reduce((s, x) => s + clockSecs(x.first, x.date), 0) / activeDays.length : 0;
+    const avgEnd = activeDays.length ? activeDays.reduce((s, x) => s + clockSecs(x.last, x.date), 0) / activeDays.length : 0;
 
     const tile = (label, value, sub, cls = '', change = null) => h('div', { class: 'tile ' + cls }, h('div', { class: 'tile-label' }, label), h('div', { class: 'tile-value' }, value, change), sub ? h('div', { class: 'tile-sub' }, sub) : null);
     // The change from the period before; its range and value in the tooltip.
@@ -144,6 +143,8 @@ export function mount(el, params) {
         heatmap(d.heat, { days: dayNames, fmt: (v) => dur(v), weekStart: weekStart(), hourLabel }));
     }
 
+    const appsIn = new Map(d.inputApps.map((a) => [a.id, a]));
+    const liveCells = new Map(); // an app's table row, by id: refills its cells
     if (inp.keys || inputClicks(inp)) {
       const Ci = { keys: cssVar('--accent'), clicks: cssVar('--active') };
       const tKeys = tile(t('Keys'), ''), tClicks = tile(t('Clicks'), '', ' '), tMouse = tile(t('Mouse'), ''), tScroll = tile(t('Scroll'), '');
@@ -177,9 +178,18 @@ export function mount(el, params) {
       }
       const dayNow = days.find((x) => x.date === today());
       if (dayNow) {
-        liveInput = (n, keys) => {
+        let seen = dayNow.input; // what an event adds to today's totals is its app's
+        liveInput = (n, keys, app) => {
           if (dayNow.date !== today()) { liveInput = null; render(); return; } // the day ended: its totals are stored now
           showInput(Object.fromEntries(Object.keys(inp).map((k) => [k, inp[k] - dayNow.input[k] + n[k]])));
+          if (app) {
+            const a = appsIn.get(app) || Object.fromEntries(Object.keys(inp).map((k) => [k, 0]));
+            for (const k of Object.keys(inp)) a[k] += n[k] - seen[k];
+            appsIn.set(app, a);
+            el.querySelector(`.row-input[data-app="${app}"]`)?.replaceChildren(...appInputParts(a));
+            liveCells.get(app)?.();
+          }
+          seen = n;
           if (keys) {
             const first = !cards.keyboard;
             for (const [k, c] of Object.entries(keys)) d.inputKeys[k] = (d.inputKeys[k] || 0) + c;
@@ -216,6 +226,7 @@ export function mount(el, params) {
       if (d.inputApps.length) {
         const ico = (a, size) => appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, size);
         const cols = [[t('Keys'), (a) => a.keys], [t('Clicks'), inputClicks], [t('Mouse'), (a) => a.move], [t('Scroll'), (a) => a.scroll]];
+        const cells = (a) => [a.keys.toLocaleString(), inputClicks(a).toLocaleString(), mouseDistance(a.move), Math.round(a.scroll / 120).toLocaleString()];
         const limit = 25;
         let sortBy = 0, all = false;
         const host = h('div', { class: 'table-host' });
@@ -224,10 +235,12 @@ export function mount(el, params) {
           clear(host);
           host.append(h('div', { class: 'table-wrap' }, h('table', { class: 'table' },
             h('thead', null, h('tr', null, h('th', null, t('Application')), cols.map(([name], i) => h('th', { class: 'click' + (i === sortBy ? ' on' : ''), onClick: () => { sortBy = i; fill(); } }, name)))),
-            h('tbody', null, (all ? rows : rows.slice(0, limit)).map((a) => h('tr', { class: 'click', onClick: () => detail('app', a.name, { id: a.id }, from, to, ico(a, 22)) },
-              h('td', null, h('span', { class: 'input-app' }, ico(a, 18), a.name)),
-              h('td', null, a.keys.toLocaleString()), h('td', null, inputClicks(a).toLocaleString()),
-              h('td', null, mouseDistance(a.move)), h('td', null, Math.round(a.scroll / 120).toLocaleString())))))));
+            h('tbody', null, (all ? rows : rows.slice(0, limit)).map((a) => {
+              const tds = cells(a).map((x) => h('td', null, x));
+              liveCells.set(a.id, () => cells(a).forEach((x, i) => { tds[i].textContent = x; })); // in place: a click on a row is counted while it happens
+              return h('tr', { class: 'click', onClick: () => detail('app', a.name, { id: a.id }, from, to, ico(a, 22)) },
+                h('td', null, h('span', { class: 'input-app' }, ico(a, 18), a.name)), tds);
+            })))));
           if (!all && rows.length > limit) host.append(h('button', { class: 'more-btn', type: 'button', onClick: () => { all = true; fill(); } }, t('Show all ({0})', rows.length)));
         };
         fill();
@@ -246,7 +259,7 @@ export function mount(el, params) {
     // Top lists.
     const listCard = (title, ic, items, render, kind) => {
       const total = items.reduce((s, x) => s + x.secs, 0);
-      const max = items.length ? items[0].secs : 1;
+      const max = (items.length && items[0].secs) || 1;
       const limit = 25;
       const list = h('div', { class: 'list' });
       const fill = (all) => {
@@ -258,14 +271,16 @@ export function mount(el, params) {
       fill(false);
       return h('section', { class: 'card list-card' }, h('div', { class: 'card-head' }, icon(ic, 16), h('h3', null, title), h('div', { class: 'spacer' }), h('span', { class: 'muted' }, dur(total))), list);
     };
-    const row = (lead, name, sub, secs, max, total, color, onClick) => h('div', { class: 'row' },
+    const row = (lead, name, sub, secs, max, total, color, onClick, input) => h('div', { class: 'row' },
       h('button', { class: 'row-main', type: 'button', onClick },
-        lead, h('span', { class: 'row-name' }, h('span', null, name), sub ? h('small', { class: 'mono' }, sub) : null),
+        lead, h('span', { class: 'row-name' }, h('span', null, name), sub ? h('small', { class: 'mono' }, sub) : null), input,
         h('div', { class: 'bar' }, h('div', { class: 'bar-fill', style: { width: Math.max(1.5, (secs / max) * 100) + '%', background: color } })),
-        h('span', { class: 'row-pct' }, pct(secs, total)), h('span', { class: 'row-dur' }, dur(secs))));
+        input ? null : h('span', { class: 'row-pct' }, pct(secs, total)), h('span', { class: 'row-dur' }, dur(secs))));
 
-    cards.apps = listCard(t('Applications'), 'app', d.apps, (a, max, total) => row(appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 18), a.name, null, a.secs, max, total, hex(a.color),
-        () => detail('app', a.name, { id: a.id }, from, to, appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 22))));
+    const timed = new Set(d.apps.map((a) => a.id)); // an imported day has counts but no time
+    cards.apps = listCard(t('Applications'), 'app', [...d.apps, ...d.inputApps.filter((a) => !timed.has(a.id))], (a, max, total) => row(appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 18), a.name, null, a.secs, max, total, hex(a.color),
+        () => detail('app', a.name, { id: a.id }, from, to, appIcon({ id: a.id, icon: a.icon, iconV: a.iconV, name: a.name, color: a.color }, 22)),
+        d.inputApps.length ? h('span', { class: 'row-input', 'data-app': a.id }, appsIn.has(a.id) ? appInputParts(appsIn.get(a.id)) : null) : null));
     cards.sites = listCard(t('Websites'), 'globe', d.sites, (s, max, total) => row(kindIcon(2, s.key, 18), s.key, null, s.secs, max, total, s.color ? hex(s.color) : mutedColor(s.key),
         () => detail('site', s.key, { key: s.key }, from, to, kindIcon(2, s.key, 22))));
     cards.files = listCard(t('Files'), 'file', d.files, (f, max, total) => row(kindIcon(1, f.key, 18), f.name, dirName(f.key), f.secs, max, total, hashColor(f.name),
@@ -278,7 +293,7 @@ export function mount(el, params) {
       h('thead', null, h('tr', null, [t('Date'), t('Start'), t('End'), t('Day length'), t('Active'), t('Away'), t('Tagged')].map((x) => h('th', null, x)))),
       h('tbody', null, days.slice().reverse().filter((x) => x.active || x.away).slice(0, 400).map((x) => h('tr', { class: 'click', onClick: () => go('day/' + x.date) },
         h('td', null, fmtDate(x.date, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })),
-        h('td', null, x.first ? clock(x.first) : '—'), h('td', null, x.last ? fmtSec(x.last - keyTime(x.date)) : '—'),
+        h('td', null, x.first ? clock(x.first) : '—'), h('td', null, x.last ? fmtSec(clockSecs(x.last, x.date)) : '—'),
         h('td', null, x.first ? dur(x.last - x.first) : '—'), h('td', null, dur(x.active)), h('td', null, dur(x.away)), h('td', null, dur(x.tagged))))));
     cards.attendance = h('section', { class: 'card' }, h('div', { class: 'card-head' }, icon('day', 16), h('h3', null, t('Attendance'))), h('div', { class: 'table-wrap' }, att));
     return cards;
@@ -439,7 +454,7 @@ export function mount(el, params) {
   return {
     refresh: (ev) => {
       if (ev && (ev.type === 'tags' || ev.type === 'settings')) render();
-      if (ev && ev.type === 'input' && liveInput) liveInput(ev.input, ev.keys);
+      if (ev && ev.type === 'input' && liveInput) liveInput(ev.input, ev.keys, ev.app);
     },
   };
 }
@@ -463,7 +478,10 @@ function previous(s, from, to) {
   return [addDays(from, -span), addDays(from, -1)];
 }
 
+// What the clock read, in seconds from 00:00 of date: 24:00 for the end of it.
+const clockSecs = (ts, date) => Math.min(86400, ts + utcOffset(ts) - Date.parse(date) / 1000);
+
 function fmtSec(s) {
   if (s >= 86400 - 30) return '24:00';
-  return clock(keyTime(today()) + s);
+  return clock(keyTime('2000-01-03') + s); // no zone changed its clock around then
 }

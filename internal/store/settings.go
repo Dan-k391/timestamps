@@ -127,19 +127,20 @@ func (db *DB) SaveSettings(s Settings) error {
 		s.Timezone = "" // newer than our zone data: the page must not show a zone the days don't follow
 	}
 	b, _ := json.Marshal(s)
-	if err := db.SetMeta("settings", string(b)); err != nil {
+	if s.Timezone != db.zone {
+		old := time.Local
+		applyZone(s.Timezone)
+		if err := db.rekeyDays(old, string(b)); err != nil {
+			time.Local = old
+			return err
+		}
+		db.zone = s.Timezone
+		db.touch() // the days read differently now
+	} else if err := db.SetMeta("settings", string(b)); err != nil {
 		return err
 	}
 	if m := s.longAway(); db.longAway.Swap(m) != m {
-		db.touch() // the timelines read differently now
-	}
-	if s.Timezone != db.zone {
-		old := time.Local
-		db.zone = s.Timezone
-		applyZone(s.Timezone)
-		err := db.rekeyDays(old)
-		db.touch() // and so do the days
-		return err
+		db.touch() // and so do the timelines
 	}
 	return nil
 }

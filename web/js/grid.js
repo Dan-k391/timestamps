@@ -218,9 +218,10 @@ export class Board {
       if (kept) at = Math.max(0, at - 1);
       if (!gone.length) continue;
       const home = kept && out.find((x) => x.items.some((i) => i.id === kept.id));
-      if (home && home.items.length + gone.length <= 3) {
-        const room = COLS - gone.reduce((n, i) => n + i.w, 0);
+      const room = COLS - gone.reduce((n, i) => n + i.w, 0);
+      if (home && home.items.length + gone.length <= 3 && home.items.every((i) => (i.w * room) / COLS >= this.minW(i.id) - 1e-6)) {
         for (const i of home.items) i.w *= room / COLS;
+        home.h = home.h || r.h; // a row of fit-to-content blocks shows without its height
         r.items.forEach((it, k) => { if (this.hidden.has(it.id)) home.items.splice(Math.min(k, home.items.length), 0, { ...it }); });
       } else out.splice(at, 0, { h: r.h, items: gone.map((i) => ({ ...i })) });
     }
@@ -249,19 +250,31 @@ export class Board {
   }
 
   setHidden(id, hidden) {
-    if (hidden === this.hidden.has(id)) return;
-    if (hidden) this.hidden.add(id); else this.hidden.delete(id);
-    this.render();
+    const next = new Set(this.held || this.hidden);
+    if (hidden === next.has(id)) return;
+    if (hidden) next.add(id); else next.delete(id);
+    if (this.dragId || this.preview) this.held = next;
+    else { this.hidden = next; this.render(); }
   }
 
   /** Shows these blocks and hides the rest, in one step and without moving
    *  them there: they would fly in from the corner. */
   show(ids) {
-    this.hidden = new Set([...this.blocks.keys()].filter((id) => !ids.includes(id)));
+    const next = new Set([...this.blocks.keys()].filter((id) => !ids.includes(id)));
+    if (this.dragId || this.preview) { this.held = next; return; } // what is in the air was built on the old set
+    this.hidden = next;
     this.host.classList.remove('ready');
     this.render();
     void this.host.offsetHeight; // applied now: a hidden window draws nothing until later
     setTimeout(() => this.host.classList.add('ready'), 60);
+  }
+
+  /** After a gesture: what show() and setHidden held back. */
+  settle() {
+    const held = this.held;
+    this.held = null;
+    if (held) this.show([...this.blocks.keys()].filter((id) => !held.has(id)));
+    else this.render();
   }
 
   get colW() { return (this.host.clientWidth - GAP * (COLS - 1)) / COLS; }
@@ -374,9 +387,11 @@ export class Board {
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop); // pulling selected text starts a browser drag
   }
 
   startDrag(e, id, firstMove) {
@@ -515,7 +530,7 @@ export class Board {
       this.dragId = null;
       this.showMark(null);
       if (drop) this.commit(drop.next);
-      else this.render();
+      else this.settle();
       // Grow back from the pointer only after it has been placed.
       setTimeout(() => { el.style.transformOrigin = ''; }, 260);
     };
@@ -540,6 +555,7 @@ export class Board {
     const ri = rows.findIndex((r) => r.items.some((i) => i.id === id));
     const i = rows[ri].items.findIndex((x) => x.id === id);
     const top = this.geo.rows[ri].top;
+    const low = this.minH(this.rows.find((r) => r.items.some((x) => x.id === id))); // a hidden block of the row counts: the height is stored with it
     this.preview = rows;
     el.classList.add('resizing');
     document.body.classList.add('grid-resizing', 'resize-' + dir);
@@ -559,7 +575,7 @@ export class Board {
         a.w = clamp(col - left, this.minW(a.id), sum - this.minW(b.id));
         b.w = sum - a.w;
       } else {
-        row.h = clamp((ly - top + GAP) / (ROW + GAP), this.minH(row), MAX_H);
+        row.h = clamp((ly - top + GAP) / (ROW + GAP), low, MAX_H);
       }
       this.preview = next;
       this.render();
@@ -583,7 +599,7 @@ export class Board {
   commit(rows) {
     const before = JSON.stringify(this.current());
     this.rows = this.withHidden(rows);
-    this.render();
+    this.settle();
     if (JSON.stringify(this.current()) !== before) this.onChange(this.current());
   }
 }

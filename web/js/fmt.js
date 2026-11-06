@@ -51,7 +51,8 @@ export function zoned(ts) {
 export function unzoned(d) {
   if (!zone) return Math.floor(d.getTime() / 1000);
   const wall = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()) / 1000;
-  return wall - utcOffset(wall - utcOffset(wall));
+  const before = utcOffset(wall - 86400), after = utcOffset(wall + 86400);
+  return utcOffset(wall - before) !== before && utcOffset(wall - after) === after ? wall - after : wall - before; // a skipped time keeps the offset before it
 }
 
 const nowDate = () => zoned(Date.now() / 1000);
@@ -80,7 +81,7 @@ export function durLong(secs) {
 export function hoursDecimal(secs) { return (secs / 3600).toFixed(2); }
 
 /** A count in a few characters: 1.2k. */
-export const compact = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
+export const compact = (n) => (n >= 999500 ? (n / 1e6).toFixed(1) + 'M' : n >= 99950 ? Math.round(n / 1000) + 'k' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
 
 /** Mouse travel from cursor pixels: on the desk, about 0.05 mm a pixel. */
 export function mouseDistance(px) {

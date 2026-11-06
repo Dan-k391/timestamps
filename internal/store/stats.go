@@ -181,7 +181,7 @@ func (db *DB) Stats(a, b int64, mergeSubdomains bool) (*Stats, error) {
 	// app row (and its icon) once per segment.
 	rows, err := db.sql.Query(`SELECT g.app, a.key, a.name, a.color, COALESCE(length(a.icon), 0), g.t FROM
 		(SELECT app, SUM(MIN(e, ?) - MAX(s, ?)) t FROM app_seg WHERE s >= ? AND s < ? AND e > ? GROUP BY app) g
-		JOIN app a ON a.id = g.app ORDER BY g.t DESC LIMIT 300`, b, a, db.lowS(TApp, a), b, a)
+		JOIN app a ON a.id = g.app ORDER BY g.t DESC`, b, a, db.lowS(TApp, a), b, a)
 	if err != nil {
 		return nil, err
 	}
@@ -357,10 +357,7 @@ func min64(a, b int64) int64 {
 func heat(h *[7][24]int64, s, e int64) {
 	for s < e {
 		t := time.Unix(s, 0).In(time.Local)
-		next := time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, time.Local).Unix()
-		if next <= s {
-			next = s + 3600
-		}
+		next := s + int64(900-t.Minute()%15*60-t.Second()) // by quarters, which clocks change on; time.Date can't tell the hour then
 		pe := e
 		if next < pe {
 			pe = next

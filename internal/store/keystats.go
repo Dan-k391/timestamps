@@ -45,6 +45,12 @@ var keyStatsScan = func() map[string]uint16 {
 		"LWin": 0x15B, "RWin": 0x15C, "Apps": 0x15D,
 		"Num0": 0x52, "Num1": 0x4F, "Num2": 0x50, "Num3": 0x51, "Num4": 0x4B, "Num5": 0x4C, "Num6": 0x4D, "Num7": 0x47, "Num8": 0x48, "Num9": 0x49,
 		"Num.": 0x53, "Num/": 0x135, "Num*": 0x37, "Num-": 0x4A, "Num+": 0x4E, "NumEnter": 0x11C,
+		// As Windows names them, which older KeyStats versions wrote.
+		"Caps Lock": 0x3A, "Scroll Lock": 0x46, "Num Lock": 0x45, "Sys Req": 0x137, "Right Shift": 0x36, "Right Ctrl": 0x11D, "Right Alt": 0x138,
+		"Num Del": 0x53, "Num /": 0x135, "Num *": 0x37, "Num -": 0x4A, "Num +": 0x4E, "Num Enter": 0x11C,
+	}
+	for c := '0'; c <= '9'; c++ {
+		m["Num "+string(c)] = m["Num"+string(c)]
 	}
 	for _, row := range []struct {
 		keys string
@@ -108,17 +114,26 @@ func (db *DB) ImportKeyStats(path string) (KeyStatsImport, error) {
 	if err != nil {
 		return res, err
 	}
+	settingsMu.RLock() // a zone change moving the days would miss the ones going in
+	defer settingsMu.RUnlock()
 	cutoff := DayStart(time.Now().Unix())
 	var first *int64
 	db.sql.QueryRow("SELECT MIN(t) FROM input WHERE src = 0").Scan(&first)
 	if first != nil {
 		cutoff = DayStart(*first)
 	}
+	// Days keep their date when the zone changes and slots don't, so the first own date can be before the first slot's.
+	// shortcut: a date imported, then counted on after a move to a zone where it still runs, then imported again, loses those hours' keys and apps; to keep them, mark such a day own in SaveInput.
+	var own *int64
+	db.sql.QueryRow("SELECT MIN(day) FROM (SELECT day FROM input_app UNION SELECT day FROM input_key) WHERE day NOT IN (SELECT t FROM input WHERE src = 1)").Scan(&own)
+	if own != nil && *own < cutoff {
+		cutoff = *own
+	}
 
 	days := map[int64]keyStatsDay{}
 	known := false
 	for date, d := range history {
-		t, err := time.ParseInLocation("2006-01-02", date, time.Local)
+		start, _, err := DayRange(date)
 		if err != nil {
 			continue
 		}
@@ -129,23 +144,38 @@ func (db *DB) ImportKeyStats(path string) (KeyStatsImport, error) {
 				return res, errors.New("the history of KeyStats for Mac can't be imported yet")
 			}
 		}
-		if t.Unix() < cutoff {
-			days[t.Unix()] = d
+		if start < cutoff {
+			days[start] = d
 		}
 	}
 	if !known {
 		return res, errors.New("not a KeyStats history file")
 	}
+	// An app's name differs between days (a blank, or a window title for python): take the latest, as AppID keeps the first it gets.
+	appKey := func(name string) string { return strings.TrimSuffix(strings.ToLower(name), ".exe") + ".exe" }
+	type named struct {
+		day  int64
+		name string
+	}
+	latest := map[string]named{}
+	for day, d := range days {
+		for name, a := range d.AppStats {
+			n := latest[appKey(name)]
+			if a.DisplayName != "" && (n.name == "" || day > n.day || day == n.day && a.DisplayName > n.name) {
+				latest[appKey(name)] = named{day, a.DisplayName}
+			}
+		}
+	}
 	// Apps first: AppID writes outside the transaction below.
 	apps := map[string]int64{}
 	for _, d := range days {
-		for name, a := range d.AppStats {
+		for name := range d.AppStats {
 			if _, ok := apps[name]; !ok {
-				display := a.DisplayName
+				display := latest[appKey(name)].name
 				if display == "" {
 					display = name
 				}
-				apps[name] = db.AppID(strings.TrimSuffix(strings.ToLower(name), ".exe")+".exe", display, "", nil)
+				apps[name] = db.AppID(appKey(name), display, "", nil)
 			}
 		}
 	}

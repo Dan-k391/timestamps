@@ -21,8 +21,9 @@ func applyZone(name string) {
 }
 
 // rekeyDays moves what is kept per day, under a midnight of the zone old, to
-// the midnight of the same date now: it has no time of day to follow.
-func (db *DB) rekeyDays(old *time.Location) error {
+// the midnight of the same date now: it has no time of day to follow. It saves
+// the settings naming the new zone with them, so the two can't part.
+func (db *DB) rekeyDays(old *time.Location, settings string) error {
 	rows, err := db.sql.Query("SELECT day FROM input_app UNION SELECT day FROM input_key UNION SELECT t FROM input WHERE src = 1")
 	if err != nil {
 		return err
@@ -41,7 +42,7 @@ func (db *DB) rekeyDays(old *time.Location) error {
 	defer tx.Rollback()
 	for _, day := range days {
 		y, m, d := time.Unix(day, 0).In(old).Date()
-		to := -time.Date(y, m, d, 0, 0, 0, 0, time.Local).Unix() // negative for now: one date's new midnight can be another's old one
+		to := -dateStart(y, m, d) // negative for now: one date's new midnight can be another's old one
 		for _, q := range []string{
 			"INSERT INTO input_app(day, app, keys, lclick, rclick, mclick, oclick, move, scroll) SELECT ?, app, keys, lclick, rclick, mclick, oclick, move, scroll FROM input_app WHERE day = ? ON CONFLICT(day, app)" + inputSum,
 			"INSERT INTO input_key(day, key, n) SELECT ?, key, n FROM input_key WHERE day = ? ON CONFLICT(day, key) DO UPDATE SET n = n + excluded.n",
@@ -53,10 +54,14 @@ func (db *DB) rekeyDays(old *time.Location) error {
 		}
 	}
 	for _, q := range []string{"DELETE FROM input_app WHERE day >= 0", "DELETE FROM input_key WHERE day >= 0",
-		"UPDATE input_app SET day = -day", "UPDATE input_key SET day = -day", "UPDATE input SET t = -t WHERE t < 0"} {
+		"UPDATE input_app SET day = -day", "UPDATE input_key SET day = -day", "UPDATE OR IGNORE input SET t = -t WHERE t < 0",
+		"UPDATE input SET t = 1 - t WHERE t < 0"} { // zones a day apart: an own slot is on that midnight, and a second on is still that date
 		if _, err := tx.Exec(q); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.Exec("INSERT INTO meta(k, v) VALUES('settings', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", settings); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

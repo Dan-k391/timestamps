@@ -592,7 +592,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, route string) {
 				return
 			}
 			next.ShotsDir = cur.ShotsDir // changed with shots/folder, which moves the files
-			if err := s.DB.SaveSettings(next); err != nil {
+			if err := s.T.SaveSettings(next); err != nil {
 				fail(w, err)
 				return
 			}

@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -48,6 +49,52 @@ func TestDeleteRangeInput(t *testing.T) {
 	tr.saveInput()
 	if stored, _ := db.InputOn(day); tr.inputToday.Keys != 0 || !tr.inputNew || stored.Keys != 0 {
 		t.Errorf("today deleted: memory %+v, stored %+v, new %v", tr.inputToday, stored, tr.inputNew)
+	}
+}
+
+// Input a save couldn't take stays in its slot until a save can, and settings
+// and deletes wait for it.
+func TestFailedSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.db")
+	db, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	raw, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec("CREATE TRIGGER nosave BEFORE INSERT ON input BEGIN SELECT RAISE(ABORT, 'no'); END"); err != nil {
+		t.Fatal(err)
+	}
+	at := store.DayStart(time.Now().Unix()) - 3*86400 + 12*3600
+	at -= at % store.InputSlot
+	tr := &Tracker{db: db, inputSlot: at, inputDay: store.DayStart(at)}
+	tr.countInput(at, store.Input{Keys: 5}, nil)
+	tr.countInput(at+store.InputSlot, store.Input{Keys: 3}, nil)
+	if err := tr.SaveSettings(db.Settings()); err == nil {
+		t.Error("settings saved past a failed save")
+	}
+	if err := tr.DeleteRange(at, at+1, []string{"usage"}); err == nil {
+		t.Error("deleted past a failed save")
+	}
+	if tr.inputToday.Keys != 8 {
+		t.Errorf("today: %+v", tr.inputToday)
+	}
+	if _, err := raw.Exec("DROP TRIGGER nosave"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.saveInput(); err != nil {
+		t.Fatal(err)
+	}
+	tr.saveInput()
+	var first, second int64
+	raw.QueryRow("SELECT keys FROM input WHERE t = ?", at).Scan(&first)
+	raw.QueryRow("SELECT keys FROM input WHERE t = ?", at+store.InputSlot).Scan(&second)
+	if first != 5 || second != 3 {
+		t.Errorf("slots: %d, %d, want 5, 3", first, second)
 	}
 }
 

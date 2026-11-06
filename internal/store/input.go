@@ -37,7 +37,7 @@ type InputApp struct {
 // DayStart returns when the local day of t began.
 func DayStart(t int64) int64 {
 	y, m, d := time.Unix(t, 0).Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.Local).Unix()
+	return dateStart(y, m, d)
 }
 
 const inputSum = ` DO UPDATE SET keys = keys + excluded.keys, lclick = lclick + excluded.lclick, rclick = rclick + excluded.rclick,
@@ -45,30 +45,40 @@ const inputSum = ` DO UPDATE SET keys = keys + excluded.keys, lclick = lclick + 
 
 // SaveInput adds in to the slot starting at t, and apps (by app id) and keys
 // (by scan code) to the day. Keys are kept per day, so that no order of
-// typing can be read from them.
-func (db *DB) SaveInput(t, day int64, in Input, apps map[int64]Input, keys map[uint16]int64) {
+// typing can be read from them. On an error nothing is saved.
+func (db *DB) SaveInput(t, day int64, in Input, apps map[int64]Input, keys map[uint16]int64) error {
 	tx, err := db.sql.Begin()
 	if err != nil {
-		return
+		return err
 	}
 	defer tx.Rollback()
-	tx.Exec("INSERT INTO input(t, keys, lclick, rclick, mclick, oclick, move, scroll) VALUES(?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(t)"+inputSum,
-		t, in.Keys, in.Left, in.Right, in.Middle, in.Other, in.Move, in.Scroll)
+	if _, err := tx.Exec("INSERT INTO input(t, keys, lclick, rclick, mclick, oclick, move, scroll) VALUES(?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(t)"+inputSum,
+		t, in.Keys, in.Left, in.Right, in.Middle, in.Other, in.Move, in.Scroll); err != nil {
+		return err
+	}
 	for id, a := range apps {
-		tx.Exec("INSERT INTO input_app(day, app, keys, lclick, rclick, mclick, oclick, move, scroll) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(day, app)"+inputSum,
-			day, id, a.Keys, a.Left, a.Right, a.Middle, a.Other, a.Move, a.Scroll)
+		if _, err := tx.Exec("INSERT INTO input_app(day, app, keys, lclick, rclick, mclick, oclick, move, scroll) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(day, app)"+inputSum,
+			day, id, a.Keys, a.Left, a.Right, a.Middle, a.Other, a.Move, a.Scroll); err != nil {
+			return err
+		}
 	}
 	for k, n := range keys {
-		tx.Exec("INSERT INTO input_key(day, key, n) VALUES(?, ?, ?) ON CONFLICT(day, key) DO UPDATE SET n = n + excluded.n", day, k, n)
+		if _, err := tx.Exec("INSERT INTO input_key(day, key, n) VALUES(?, ?, ?) ON CONFLICT(day, key) DO UPDATE SET n = n + excluded.n", day, k, n); err != nil {
+			return err
+		}
 	}
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
 	db.touch()
+	return nil
 }
 
 // InputOn returns the input of the local day starting at day: in all, and by
 // app id.
 func (db *DB) InputOn(day int64) (Input, map[int64]Input) {
-	next := time.Unix(day, 0).AddDate(0, 0, 1).Unix()
+	y, m, d := time.Unix(day, 0).Date()
+	next := dateStart(y, m, d+1)
 	apps, err := db.inputApps(day, next)
 	if err != nil {
 		apps = map[int64]Input{}

@@ -14,10 +14,19 @@ function timeValue(ts) {
 }
 
 function applyTime(ts, value) {
+  if (!value || value === timeValue(ts)) return ts; // unchanged: a wall time can't tell the two passes of a repeated hour
   const d = zoned(ts);
   const [hh, mm, ss] = value.split(':').map(Number);
   d.setHours(hh || 0, mm || 0, ss || 0, 0);
   return unzoned(d);
+}
+
+// An end at or past midnight shows the next date: a new time for it means the
+// start's date, unless that would put it before the start. A tag of more than
+// a day keeps the date it ends.
+function applyEnd(ts, value, s) {
+  const e = applyTime(ts - s > 86400 ? ts - 1 : s, value);
+  return value && value !== timeValue(ts) && e > s ? e : applyTime(ts, value);
 }
 
 /**
@@ -34,7 +43,7 @@ export function openTagDialog(seg, { title, subtitle } = {}) {
     const end = h('input', { class: 'input time', type: 'time', step: 1, value: timeValue(seg.e) });
     const len = h('span', { class: 'muted' }, dur(seg.e - seg.s));
     const updLen = () => {
-      const s = applyTime(seg.s, start.value), e = applyTime(seg.e, end.value);
+      const s = applyTime(seg.s, start.value), e = applyEnd(seg.e, end.value, s);
       len.textContent = e > s ? dur(e - s) : '—';
     };
     start.addEventListener('input', updLen);
@@ -63,7 +72,7 @@ export function openTagDialog(seg, { title, subtitle } = {}) {
       h('p', { class: 'hint' }, t('Separate tags with commas to build a hierarchy, e.g. "Client, Project, Task".')));
 
     const save = async () => {
-      const s = applyTime(seg.s, start.value), e = applyTime(seg.e, end.value);
+      const s = applyTime(seg.s, start.value), e = applyEnd(seg.e, end.value, s);
       const tags = ti.value.trim();
       if (!tags) { ti.input.focus(); toast(t('Enter at least one tag'), { type: 'error' }); return; }
       if (!ranges && e <= s) { toast(t('End must be after start'), { type: 'error' }); return; }

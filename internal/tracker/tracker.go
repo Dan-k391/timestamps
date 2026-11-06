@@ -89,8 +89,9 @@ type Tracker struct {
 	input          store.Input // not saved yet, for inputSlot
 	inputApps      map[int64]store.Input
 	inputKeys      map[uint16]int64
-	inputSlot      int64 // the store.InputSlot input is counted for
-	inputDay       int64 // and the day
+	inputKept      []keptInput // what saves couldn't take, oldest first
+	inputSlot      int64       // the store.InputSlot input is counted for
+	inputDay       int64       // and the day
 	inputToday     store.Input
 	inputTodayApps map[int64]store.Input
 	inputNew       bool             // inputToday changed
@@ -193,6 +194,7 @@ func (t *Tracker) Stop() {
 	}
 	close(t.stop)
 	<-t.done
+	t.pollInput()
 	t.mu.Lock()
 	t.closeAll(time.Now().Unix())
 	t.mu.Unlock()
@@ -209,6 +211,7 @@ func (t *Tracker) Suspend() {
 
 // Pause stops tracking for d (0 = until resumed).
 func (t *Tracker) Pause(d time.Duration) {
+	t.pollInput() // what came before it
 	t.mu.Lock()
 	t.paused = true
 	t.pausedTill = time.Time{}
@@ -235,6 +238,7 @@ const (
 // (playing sound doesn't end it, nor locking the screen), as if the computer
 // were off meanwhile.
 func (t *Tracker) MarkOff() {
+	t.pollInput() // what came before it
 	t.mu.Lock()
 	if !t.paused {
 		t.offAt, t.offBack = time.Now(), time.Time{}
@@ -365,10 +369,10 @@ func (t *Tracker) WatchInput() (stop func()) {
 }
 
 func (t *Tracker) pollInput() {
-	in, keys := takeInput()
 	t.mu.Lock()
 	var ev *Event
-	if t.state == "active" || t.state == "away" { // else left out, as in step
+	if t.state == "active" || t.state == "away" { // else it waits for step, which counts or drops it
+		in, keys := takeInput()
 		t.countInput(time.Now().Unix(), in, keys)
 		ev = t.inputEvent()
 	}
@@ -650,13 +654,30 @@ func (t *Tracker) closeDoc(nowS int64) {
 	t.doc, t.docKey, t.docName, t.docKind = seg{}, "", "", 0
 }
 
+// SaveSettings saves settings with the counting held: a new timezone moves the
+// days, and input must not be saved or today read halfway through.
+func (t *Tracker) SaveSettings(s store.Settings) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err := t.saveInput(); err != nil {
+		return err
+	}
+	err := t.db.SaveSettings(s)
+	t.inputDay = store.DayStart(time.Now().Unix())
+	t.inputToday, t.inputTodayApps = t.db.InputOn(t.inputDay)
+	t.inputNew = true
+	return err
+}
+
 // DeleteRange deletes data, with what is counted in memory: unsaved input goes
 // to the database first for the range to cover it, and today's total is read
 // again.
 func (t *Tracker) DeleteRange(a, b int64, timelines []string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.saveInput()
+	if err := t.saveInput(); err != nil {
+		return err
+	}
 	err := t.db.DeleteRange(a, b, timelines)
 	in, apps := t.db.InputOn(t.inputDay)
 	t.inputTodayApps = apps
@@ -677,10 +698,14 @@ func addInput(m *map[int64]store.Input, id int64, in store.Input) {
 
 // countInput adds input to the totals, to the app in use, and to the keys
 // unless that app is private.
-// shortcut: the app is the one of the last tick, so up to a second around a switch to or from a private app can land on the wrong side; to be exact, read the foreground window here.
+// shortcut: the app is the one of the last tick, so input in the up to a second after any switch counts for the app left behind, and a private app's first second reaches the keys; to be exact, split the totals at the switch in win's inputState.read.
 func (t *Tracker) countInput(nowS int64, in store.Input, keys map[uint16]int64) {
 	if slot := nowS - nowS%store.InputSlot; slot != t.inputSlot {
 		t.saveInput()
+		if t.input != (store.Input{}) { // not saved: it stays in its slot
+			t.inputKept = append(t.inputKept, keptInput{t.inputSlot, t.input, t.inputApps, t.inputKeys})
+			t.input, t.inputApps, t.inputKeys = store.Input{}, nil, nil
+		}
 		t.inputSlot = slot
 	}
 	if day := store.DayStart(nowS); day != t.inputDay { // a new day, or another timezone
@@ -714,11 +739,32 @@ func (t *Tracker) countInput(nowS int64, in store.Input, keys map[uint16]int64) 
 	}
 }
 
-func (t *Tracker) saveInput() {
-	if t.input != (store.Input{}) {
-		t.db.SaveInput(t.inputSlot, store.DayStart(t.inputSlot), t.input, t.inputApps, t.inputKeys)
-		t.input, t.inputApps, t.inputKeys = store.Input{}, nil, nil
+// keptInput is input of a slot gone by that no save has taken yet.
+type keptInput struct {
+	slot int64
+	in   store.Input
+	apps map[int64]store.Input
+	keys map[uint16]int64
+}
+
+// saveInput stores what is counted. On an error it keeps it for the next save:
+// a full disk or a busy database passes.
+func (t *Tracker) saveInput() error {
+	for len(t.inputKept) > 0 {
+		k := t.inputKept[0]
+		if err := t.db.SaveInput(k.slot, store.DayStart(k.slot), k.in, k.apps, k.keys); err != nil {
+			return err
+		}
+		t.inputKept = t.inputKept[1:]
 	}
+	if t.input == (store.Input{}) {
+		return nil
+	}
+	if err := t.db.SaveInput(t.inputSlot, store.DayStart(t.inputSlot), t.input, t.inputApps, t.inputKeys); err != nil {
+		return err
+	}
+	t.input, t.inputApps, t.inputKeys = store.Input{}, nil, nil
+	return nil
 }
 
 func (t *Tracker) closeAll(at int64) {

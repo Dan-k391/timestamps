@@ -1,7 +1,7 @@
 // Day view: timeline lanes, live updates, tagging and summaries.
-import { h, clear, icon, button, appIcon, kindIcon, siteHost, wheelScrollsX, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
+import { h, clear, icon, button, appIcon, appInputParts, kindIcon, siteHost, wheelScrollsX, menu, showTip, hideTip, pickDate, toast, confirmDialog, segmented, empty } from '../ui.js';
 import { t } from '../i18n.js';
-import { dur, durLong, clock, mouseDistance, compact, fmtDateLong, today, addDays, hex, hashColor, mutedColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser, baseDomain } from '../fmt.js';
+import { dur, durLong, clock, mouseDistance, fmtDateLong, today, addDays, hex, hashColor, mutedColor, escapeHTML, shortURL, baseName, dirName, pct, pageTitle, stripBrowser, baseDomain } from '../fmt.js';
 import * as api from '../api.js';
 import { Timeline } from '../timeline.js';
 import { ActivityList } from '../activitylist.js';
@@ -475,8 +475,6 @@ export function mount(el, params) {
   }
 
   // An app's keys and clicks: counted per day, so left out for a selection.
-  const appInputParts = (n) => [h('span', null, icon('keyboard', 13), compact(n.keys)), h('span', null, icon('pointer', 13), compact(clicks(n)))];
-
   function renderSummaryCards() {
     const c = collect();
     // Applications

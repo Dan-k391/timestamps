@@ -48,11 +48,28 @@ type TagMeta struct {
 
 // DayRange returns [start, end) unix seconds of a local calendar day.
 func DayRange(date string) (int64, int64, error) {
-	t, err := time.ParseInLocation("2006-01-02", date, time.Local)
+	t, err := time.Parse("2006-01-02", date)
 	if err != nil {
 		return 0, 0, err
 	}
-	return t.Unix(), t.AddDate(0, 0, 1).Unix(), nil
+	y, m, d := t.Date()
+	return dateStart(y, m, d), dateStart(y, m, d+1), nil
+}
+
+// dateStart returns the first moment of a local date; d may run past the end
+// of the month. That isn't always 00:00: clocks can skip it (Havana, Beirut) or
+// pass it twice, time.Date may then land on either side, and Pacific/Apia
+// skipped all of 2011-12-30, which starts when the next date does.
+func dateStart(y int, m time.Month, d int) int64 {
+	day := func(t time.Time) int { y, m, d := t.Date(); return y*512 + int(m)*32 + d }
+	want := day(time.Date(y, m, d, 0, 0, 0, 0, time.UTC))
+	begun := func(s int64) bool { return day(time.Unix(s, 0)) >= want }
+	t := time.Date(y, m, d, 0, 0, 0, 0, time.Local).Unix()
+	if begun(t) && !begun(t-1) {
+		return t
+	}
+	from := t - 2*86400
+	return from + int64(sort.Search(4*86400, func(i int) bool { return begun(from + int64(i)) }))
 }
 
 // Range returns [start, end) unix seconds for an inclusive local date range.
@@ -84,12 +101,11 @@ func clip(s, e, a, b int64) int64 {
 // Earliest returns the local midnight of the first recorded day (0 if none).
 func (db *DB) Earliest() int64 {
 	var m sql.NullInt64
-	db.sql.QueryRow("SELECT MIN(s) FROM (SELECT MIN(s) s FROM usage_seg UNION ALL SELECT MIN(t) FROM input)").Scan(&m)
+	db.sql.QueryRow("SELECT MIN(s) FROM (SELECT MIN(s) s FROM usage_seg UNION ALL SELECT MIN(t) FROM input UNION ALL SELECT MIN(day) FROM input_app UNION ALL SELECT MIN(day) FROM input_key)").Scan(&m)
 	if !m.Valid {
 		return 0
 	}
-	t := time.Unix(m.Int64, 0).In(time.Local)
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local).Unix()
+	return DayStart(m.Int64)
 }
 
 // Day loads all timelines overlapping [a, b).
@@ -282,14 +298,14 @@ func (db *DB) TagMetas() map[string]TagMeta {
 
 // dayStarts returns the local midnight boundaries covering [a, b).
 func dayStarts(a, b int64) []int64 {
-	t := time.Unix(a, 0).In(time.Local)
-	t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
-	var out []int64
-	for t.Unix() < b {
-		out = append(out, t.Unix())
-		t = t.AddDate(0, 0, 1)
+	y, m, d := time.Unix(a, 0).Date()
+	out := []int64{dateStart(y, m, d)}
+	for out[len(out)-1] < b {
+		d++
+		if s := dateStart(y, m, d); s > out[len(out)-1] { // a skipped date has no day
+			out = append(out, s)
+		}
 	}
-	out = append(out, t.Unix())
 	return out
 }
 

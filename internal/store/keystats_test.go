@@ -114,7 +114,8 @@ func TestImportKeyStats(t *testing.T) {
 
 func TestKeyStatsCode(t *testing.T) {
 	for name, want := range map[string]uint16{"A": 0x1E, "Ctrl+V": 0x2F, "Ctrl+Shift+Alt+Win+Z": 0x2C, "Alt+Tab": 0x0F, "F1": 0x3B, "F9": 0x43, "F10": 0x44, "F12": 0x58,
-		"0": 0x0B, "1": 0x02, "Num+": 0x4E, "Ctrl+Num+": 0x4E, "NumEnter": 0x11C, "RWin": 0x15C, "VolUp": 0, "Key231": 0} {
+		"0": 0x0B, "1": 0x02, "Num+": 0x4E, "Ctrl+Num+": 0x4E, "NumEnter": 0x11C, "RWin": 0x15C, "VolUp": 0, "Key231": 0,
+		"Right Shift": 0x36, "Caps Lock": 0x3A, "Num 0": 0x52, "Ctrl+Num 7": 0x47, "Num *": 0x37, "Sys Req": 0x137} {
 		if got := keyStatsCode(name); got != want {
 			t.Errorf("%s: %#x, want %#x", name, got, want)
 		}

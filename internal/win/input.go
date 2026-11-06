@@ -36,6 +36,7 @@ const (
 
 	cursorSample  = 33   // ms between cursor samples: 30 a second, as a 1000 Hz mouse sends far more
 	cursorMaxStep = 1000 // pixels: a longer step is the cursor being placed, not moved
+	keyRepeatGap  = 1500 // ms: a held key repeats sooner; Windows' longest delay is 1 s
 )
 
 type rawInputDevice struct {
@@ -96,7 +97,8 @@ func inputLoop(ready chan<- uint32) {
 	runtime.LockOSThread() // never unlocked: the thread and its window end with this function
 	cls := utf16Ptr("Static")
 	hwnd, _, _ := pCreateWindowExW.Call(0, uintptr(unsafe.Pointer(cls)), 0, 0, 0, 0, 0, 0, ^uintptr(2), 0, 0, 0) // HWND_MESSAGE
-	devs := [2]rawInputDevice{{1, 6, ridevInputSink, hwnd}, {1, 2, ridevInputSink, hwnd}}                        // keyboard, mouse
+	// shortcut: two-finger touchpad scrolling in apps using Direct Manipulation (Edge, Discord) is never mouse input, so Scroll misses it; read the touchpad's HID reports (0x0D, 0x05) to count it.
+	devs := [2]rawInputDevice{{1, 6, ridevInputSink, hwnd}, {1, 2, ridevInputSink, hwnd}} // keyboard, mouse
 	if r, _, err := pRegisterRawInputDevices.Call(uintptr(unsafe.Pointer(&devs)), 2, unsafe.Sizeof(devs[0])); r == 0 {
 		log.Print("counting keyboard and mouse use: ", err)
 		ready <- 0
@@ -116,9 +118,10 @@ func inputLoop(ready chan<- uint32) {
 }
 
 type inputState struct {
-	held    [512]bool // a held key repeats; it counts once
-	sampled uint32    // when the cursor was last read
+	held    [512]uint32 // when a held key last went down or repeated, 0 for up: it counts once
+	sampled uint32      // when the cursor was last read
 	x, y    int32
+	raw     float64 // relative mouse motion since then
 }
 
 func (s *inputState) read(h uintptr, at uint32) {
@@ -131,7 +134,7 @@ func (s *inputState) read(h uintptr, at uint32) {
 	defer inputMu.Unlock()
 	switch raw.Type {
 	case rimKeyboard:
-		s.key(&inputTotal, inputKeys, (*rawKeyboard)(unsafe.Pointer(&raw.Data)))
+		s.key(&inputTotal, inputKeys, (*rawKeyboard)(unsafe.Pointer(&raw.Data)), at)
 	case rimTypeMouse:
 		s.mouse(&inputTotal, (*rawMouse)(unsafe.Pointer(&raw.Data)))
 		if at-s.sampled >= cursorSample {
@@ -143,7 +146,11 @@ func (s *inputState) read(h uintptr, at uint32) {
 	}
 }
 
-func (s *inputState) key(n *Input, keys map[uint16]int64, k *rawKeyboard) {
+// key counts a press at its first down. Raw Input never shows the down of a
+// key taken as a hotkey (the Tab of Alt+Tab, an app's global shortcut), only
+// its up, so an up with no down counts too. A key "held" past any repeat lost
+// its up (to the lock screen, say): its next down is a new press.
+func (s *inputState) key(n *Input, keys map[uint16]int64, k *rawKeyboard, at uint32) {
 	if k.VKey == 0 || k.VKey >= 255 { // 255: a fake key, part of another key's scan codes
 		return
 	}
@@ -154,15 +161,21 @@ func (s *inputState) key(n *Input, keys map[uint16]int64, k *rawKeyboard) {
 	if k.Flags&riKeyE1 != 0 {
 		id = 0x145 // Pause
 	}
-	down := k.Flags&riKeyBreak == 0
-	if down && !s.held[id] {
+	down, last := k.Flags&riKeyBreak == 0, s.held[id]
+	if last == 0 || (down && int32(at-last) > keyRepeatGap) { // signed: a repeat on the same tick can read as before last
 		n.Keys++
 		keys[id]++
 	}
-	s.held[id] = down
+	s.held[id] = 0
+	if down {
+		s.held[id] = at | 1
+	}
 }
 
 func (s *inputState) mouse(n *Input, m *rawMouse) {
+	if m.Flags&1 == 0 { // MOUSE_MOVE_ABSOLUTE (RustDesk, a tablet) carries a position, not motion
+		s.raw += math.Hypot(float64(m.LastX), float64(m.LastY))
+	}
 	f := m.ButtonFlags
 	if f&0x0001 != 0 { // RI_MOUSE_LEFT_BUTTON_DOWN
 		n.Left++
@@ -187,10 +200,16 @@ func (s *inputState) mouse(n *Input, m *rawMouse) {
 	}
 }
 
+// cursor adds the larger of the cursor's step and the raw motion since the
+// last sample: a game pins or recentres the cursor, so only raw motion shows
+// there, and remote control moves it with absolute events, so only the step.
+// shortcut: a raw count is a pixel only at 1:1 pointer speed; scale it by the pointer settings if that matters.
 func (s *inputState) cursor(n *Input, x, y int32) {
 	d := math.Hypot(float64(x-s.x), float64(y-s.y))
 	s.x, s.y = x, y
-	if d <= cursorMaxStep {
-		n.Move += int64(math.Round(d))
+	if d > cursorMaxStep {
+		d = 0
 	}
+	n.Move += int64(math.Round(math.Max(d, s.raw)))
+	s.raw = 0
 }
